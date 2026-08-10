@@ -129,4 +129,17 @@ describe('core workspace pages', () => {
     expect(screen.queryByRole('dialog', { name: '内容详情' })).not.toBeInTheDocument()
     expect(screen.getByTestId('location')).toHaveTextContent('/content?source=create')
   })
+
+  it('keeps content pagination usable after opening details in a modal', async () => {
+    vi.mocked(fetchContentGroups).mockResolvedValue({ data: { items: [], total: 21, page: 1, size: 20 } } as never)
+    renderPage(<ContentListPage />)
+    await waitFor(() => expect(vi.mocked(fetchContentGroups)).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getAllByRole('button')[2]).toBeEnabled())
+    const buttons = screen.getAllByRole('button')
+    expect(buttons).toHaveLength(3)
+    expect(buttons[0]).toBeDisabled()
+    expect(buttons[1]).toHaveTextContent('1')
+    fireEvent.click(buttons[2])
+    await waitFor(() => expect(vi.mocked(fetchContentGroups)).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2, size: 20 })))
+  })
 })
