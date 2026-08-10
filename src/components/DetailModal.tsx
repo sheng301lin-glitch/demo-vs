@@ -1,4 +1,4 @@
-import { useEffect, useId, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 
 export interface DetailModalProps {
   open: boolean
@@ -10,21 +10,40 @@ export interface DetailModalProps {
 
 export function DetailModal({ open, title, onClose, size = 'task', children }: DetailModalProps) {
   const titleId = useId()
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const modalRef = useRef<HTMLElement>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!open) return
 
     const previousOverflow = document.body.style.overflow
-    const closeOnEscape = (event: KeyboardEvent) => {
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const closeOnKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
+      if (event.key !== 'Tab') return
+
+      const focusable = Array.from(modalRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? []).filter(element => !element.hidden && element.getAttribute('aria-hidden') !== 'true')
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (!first || !last) {
+        event.preventDefault()
+        modalRef.current?.focus()
+      } else if (event.shiftKey ? document.activeElement === first : document.activeElement === last) {
+        event.preventDefault()
+        const nextFocus = event.shiftKey ? last : first
+        nextFocus.focus()
+      }
     }
 
     document.body.style.overflow = 'hidden'
-    document.addEventListener('keydown', closeOnEscape)
+    document.addEventListener('keydown', closeOnKeyDown)
+    closeButtonRef.current?.focus()
 
     return () => {
       document.body.style.overflow = previousOverflow
-      document.removeEventListener('keydown', closeOnEscape)
+      document.removeEventListener('keydown', closeOnKeyDown)
+      if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus()
     }
   }, [open, onClose])
 
@@ -36,10 +55,10 @@ export function DetailModal({ open, title, onClose, size = 'task', children }: D
       data-testid="detail-modal-backdrop"
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
-      <section className={`detail-modal detail-modal--${size}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <section ref={modalRef} className={`detail-modal detail-modal--${size}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <header className="detail-modal-header">
           <h2 id={titleId}>{title}</h2>
-          <button className="icon-button" aria-label={`关闭${title}`} onClick={onClose}>×</button>
+          <button ref={closeButtonRef} className="icon-button" aria-label={`关闭${title}`} onClick={onClose}>×</button>
         </header>
         <div className="detail-modal-body">{children}</div>
       </section>

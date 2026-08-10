@@ -157,6 +157,20 @@ describe('core workspace pages', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeEnabled()
   })
 
+  it('opens task details when a focused task row receives Enter', async () => {
+    vi.mocked(fetchTasks).mockResolvedValueOnce({ data: { items: [failedTask], total: 1, page: 1, size: 20 } } as never)
+    vi.mocked(fetchTaskDetail).mockResolvedValueOnce({ data: { ...failedTask, request_id: 'req_1', current_iteration: 0, max_iteration: 2, input_params: {}, image_requested_count: 0, image_success_count: 0, image_failed_count: 0 } } as never)
+    vi.mocked(fetchTaskEvents).mockResolvedValueOnce({ data: [] } as never)
+    renderPage(<TasksPage />)
+
+    const row = (await screen.findByText('失败任务')).closest('tr')!
+    row.focus()
+    expect(row).toHaveFocus()
+    fireEvent.keyDown(row, { key: 'Enter' })
+
+    expect(await screen.findByRole('dialog', { name: '任务详情' })).toBeInTheDocument()
+  })
+
   it('opens task details as a dialog and removes only task on close', async () => {
     vi.mocked(fetchTasks).mockResolvedValueOnce({ data: { items: [failedTask], total: 1, page: 1, size: 20 } } as never)
     vi.mocked(fetchTaskDetail).mockResolvedValueOnce({ data: { ...failedTask, request_id: 'req_1', current_iteration: 0, max_iteration: 2, input_params: {}, image_requested_count: 0, image_success_count: 0, image_failed_count: 0 } } as never)
@@ -183,6 +197,22 @@ describe('core workspace pages', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭内容详情' }))
     expect(screen.queryByRole('dialog', { name: '内容详情' })).not.toBeInTheDocument()
     expect(screen.getByTestId('location')).toHaveTextContent('/content?source=create')
+  })
+
+  it('opens content details when a focused content row receives Space', async () => {
+    const content = { content_id: 'content_1', task_id: 'task_1', content_group_id: 'group_1', title: '防晒标题', body: '{"body":"正文内容","hashtags":[],"summary":"内容摘要"}', platform: 'XHS', version_no: 1, score: 80, model_name: 'deepseek-chat', provider: 'deepseek', evaluation_detail: {}, media_json: null, status: 'ACTIVE', created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    const group = { content_group_id: 'group_1', root_task_id: 'task_1', latest_task_id: 'task_1', generation_index: 1, platform: 'XHS', current_version_no: 1, version_count: 1, status: 'ACTIVE', current_content: content, created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    vi.mocked(fetchContentGroups).mockResolvedValueOnce({ data: { items: [group], total: 1, page: 1, size: 20 } } as never)
+    vi.mocked(fetchContentGroupDetail).mockResolvedValueOnce({ data: group } as never)
+    vi.mocked(fetchContentVersions).mockResolvedValueOnce({ data: [content] } as never)
+    renderPage(<ContentListPage />)
+
+    const row = (await screen.findByText('防晒标题')).closest('tr')!
+    row.focus()
+    expect(row).toHaveFocus()
+    fireEvent.keyDown(row, { key: ' ' })
+
+    expect(await screen.findByRole('dialog', { name: '内容详情' })).toBeInTheDocument()
   })
 
   it('keeps content pagination controls usable', async () => {
