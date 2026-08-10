@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GeneratorPage } from './Generator'
 import { TasksPage } from './Tasks'
 import { ContentListPage } from './ContentList'
-import { createGenerateTask, estimateTask, fetchTaskDetail, fetchTaskEvents, fetchTasks } from '../api/endpoints'
+import { createGenerateTask, estimateTask, fetchContentGroupDetail, fetchContentGroups, fetchContentVersions, fetchTaskDetail, fetchTaskEvents, fetchTasks } from '../api/endpoints'
 
 vi.mock('../api/endpoints', async () => {
   const actual = await vi.importActual<typeof import('../api/endpoints')>('../api/endpoints')
@@ -18,6 +18,8 @@ vi.mock('../api/endpoints', async () => {
     fetchTaskDetail: vi.fn(),
     fetchTaskEvents: vi.fn().mockResolvedValue({ data: [] }),
     fetchContentGroups: vi.fn().mockResolvedValue({ data: { items: [], total: 0, page: 1, size: 20 } }),
+    fetchContentGroupDetail: vi.fn(),
+    fetchContentVersions: vi.fn(),
     fetchContentStatistics: vi.fn().mockResolvedValue({ data: { total_groups: 0, today_new_groups: 0, average_current_score: null, optimized_groups: 0, archived_groups: 0, status_distribution: {}, score_distribution: {}, daily_trend: [] } }),
     fetchMaterials: vi.fn().mockResolvedValue({ data: { items: [], total: 0, page: 1, size: 20 } }),
     estimateTask: vi.fn().mockResolvedValue({ data: { estimated_tokens: null, estimated_duration_seconds: null, estimated_cost: null, confidence: 'LOW' } }),
@@ -109,5 +111,22 @@ describe('core workspace pages', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭任务详情' }))
     expect(screen.queryByRole('dialog', { name: '任务详情' })).not.toBeInTheDocument()
     expect(screen.getByTestId('location')).toHaveTextContent('/tasks?source=create')
+  })
+
+  it('opens content details as a readable dialog and removes only group on close', async () => {
+    const content = { content_id: 'content_1', task_id: 'task_1', content_group_id: 'group_1', title: '闃叉檼鏍囬', body: '{"body":"姝ｆ枃鍐呭","hashtags":["闃叉檼","鎶よ偆"],"summary":"鍐呭鎽樿"}', platform: 'XHS', version_no: 1, score: 80, model_name: 'deepseek-chat', provider: 'deepseek', evaluation_detail: {}, media_json: null, status: 'ACTIVE', created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    const group = { content_group_id: 'group_1', root_task_id: 'task_1', latest_task_id: 'task_1', generation_index: 1, platform: 'XHS', current_version_no: 1, version_count: 1, status: 'ACTIVE', current_content: content, created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    vi.mocked(fetchContentGroups).mockResolvedValueOnce({ data: { items: [group], total: 1, page: 1, size: 20 } } as never)
+    vi.mocked(fetchContentGroupDetail).mockResolvedValueOnce({ data: group } as never)
+    vi.mocked(fetchContentVersions).mockResolvedValueOnce({ data: [content] } as never)
+    renderPage(<><ContentListPage /><LocationProbe /></>, ['/content?source=create'])
+    fireEvent.click(await screen.findByText('闃叉檼鏍囬'))
+    expect(await screen.findByRole('dialog', { name: '内容详情' })).toBeInTheDocument()
+    expect(await screen.findByText('姝ｆ枃鍐呭')).toBeInTheDocument()
+    expect(screen.getByText('#闃叉檼')).toBeInTheDocument()
+    expect(screen.getByText('鍐呭鎽樿')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '关闭内容详情' }))
+    expect(screen.queryByRole('dialog', { name: '内容详情' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent('/content?source=create')
   })
 })
