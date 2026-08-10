@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { GeneratorPage } from './Generator'
 import { TasksPage } from './Tasks'
@@ -43,6 +43,11 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname}{location.search}</output>
 }
 
+function HistoryBackButton() {
+  const navigate = useNavigate()
+  return <button onClick={() => navigate(-1)}>返回</button>
+}
+
 function renderPage(element: React.ReactNode, initialEntries: string[] = ['/']) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -63,6 +68,37 @@ describe('core workspace pages', () => {
   it('redirects a legacy content detail URL to the content modal URL', async () => {
     renderPage(<><App /><LocationProbe /></>, ['/content/group_legacy'])
     expect(await screen.findByTestId('location')).toHaveTextContent('/content?group=group_legacy')
+  })
+
+  it('encodes and decodes special characters in a legacy task detail URL', async () => {
+    const taskId = '任务 空格/%'
+    vi.mocked(fetchTaskDetail).mockResolvedValueOnce({ data: { ...failedTask, task_id: taskId } } as never)
+    renderPage(<><App /><LocationProbe /></>, [`/tasks/${encodeURIComponent(taskId)}`])
+    await waitFor(() => expect(vi.mocked(fetchTaskDetail)).toHaveBeenCalledWith(taskId))
+    expect(screen.getByTestId('location')).toHaveTextContent(`/tasks?task=${encodeURIComponent(taskId)}`)
+  })
+
+  it('encodes and decodes special characters in a legacy content detail URL', async () => {
+    const groupId = '分组 空格/%'
+    vi.mocked(fetchContentGroupDetail).mockResolvedValueOnce({ data: { content_group_id: groupId, current_version_no: 1, platform: 'XHS', status: 'ACTIVE' } } as never)
+    vi.mocked(fetchContentVersions).mockResolvedValueOnce({ data: [] } as never)
+    renderPage(<><App /><LocationProbe /></>, [`/content/${encodeURIComponent(groupId)}`])
+    await waitFor(() => expect(vi.mocked(fetchContentGroupDetail)).toHaveBeenCalledWith(groupId))
+    expect(screen.getByTestId('location')).toHaveTextContent(`/content?group=${encodeURIComponent(groupId)}`)
+  })
+
+  it('replaces the legacy task detail history entry', async () => {
+    renderPage(<><App /><LocationProbe /><HistoryBackButton /></>, ['/tasks?source=create', '/tasks/task_legacy'])
+    expect(await screen.findByTestId('location')).toHaveTextContent('/tasks?task=task_legacy')
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    expect(screen.getByTestId('location')).toHaveTextContent('/tasks?source=create')
+  })
+
+  it('replaces the legacy content detail history entry', async () => {
+    renderPage(<><App /><LocationProbe /><HistoryBackButton /></>, ['/content?source=create', '/content/group_legacy'])
+    expect(await screen.findByTestId('location')).toHaveTextContent('/content?group=group_legacy')
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    expect(screen.getByTestId('location')).toHaveTextContent('/content?source=create')
   })
 
   it('renders the five-section task creation workflow and live summary', () => {
