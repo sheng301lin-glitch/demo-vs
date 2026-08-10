@@ -20,6 +20,8 @@ export function DetailModal({ open, title, onClose, size = 'task', children }: D
     if (!open) return
 
     const previousOverflow = document.body.style.overflow
+    const appMain = modalRef.current?.closest<HTMLElement>('.app-main')
+    const previousAppMainOverflow = appMain?.style.overflow ?? ''
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const closeOnKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onCloseRef.current()
@@ -39,11 +41,13 @@ export function DetailModal({ open, title, onClose, size = 'task', children }: D
     }
 
     document.body.style.overflow = 'hidden'
+    if (appMain) appMain.style.overflow = 'hidden'
     document.addEventListener('keydown', closeOnKeyDown)
     closeButtonRef.current?.focus()
 
     return () => {
       document.body.style.overflow = previousOverflow
+      if (appMain) appMain.style.overflow = previousAppMainOverflow
       document.removeEventListener('keydown', closeOnKeyDown)
       if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus()
     }

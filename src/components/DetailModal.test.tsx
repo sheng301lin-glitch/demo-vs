@@ -113,6 +113,31 @@ describe('DetailModal', () => {
     expect(latestOnClose).toHaveBeenCalledTimes(1)
   })
 
+  it('locks and restores the app scroll container with its existing inline overflow', () => {
+    const onClose = vi.fn()
+    const modal = (open: boolean) => (
+      <main className="app-main" style={{ overflow: 'auto' }}>
+        <DetailModal open={open} title="任务详情" onClose={onClose}>
+          <p>任务内容</p>
+        </DetailModal>
+      </main>
+    )
+    const { container, rerender, unmount } = render(modal(true))
+    const appMain = container.querySelector<HTMLElement>('.app-main')!
+
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(appMain.style.overflow).toBe('hidden')
+
+    rerender(modal(false))
+    expect(document.body.style.overflow).toBe('')
+    expect(appMain.style.overflow).toBe('auto')
+
+    rerender(modal(true))
+    unmount()
+    expect(document.body.style.overflow).toBe('')
+    expect(appMain.style.overflow).toBe('auto')
+  })
+
   it('closes on Escape and backdrop click but not content click', () => {
     const onClose = vi.fn()
 
