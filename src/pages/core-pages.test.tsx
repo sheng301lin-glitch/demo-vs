@@ -130,7 +130,7 @@ describe('core workspace pages', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/content?source=create')
   })
 
-  it('keeps content pagination usable after opening details in a modal', async () => {
+  it('keeps content pagination controls usable', async () => {
     vi.mocked(fetchContentGroups).mockResolvedValue({ data: { items: [], total: 21, page: 1, size: 20 } } as never)
     renderPage(<ContentListPage />)
     await waitFor(() => expect(vi.mocked(fetchContentGroups)).toHaveBeenCalled())
