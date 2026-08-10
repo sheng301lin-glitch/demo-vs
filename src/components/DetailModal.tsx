@@ -13,6 +13,8 @@ export function DetailModal({ open, title, onClose, size = 'task', children }: D
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const modalRef = useRef<HTMLElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
     if (!open) return
@@ -20,7 +22,7 @@ export function DetailModal({ open, title, onClose, size = 'task', children }: D
     const previousOverflow = document.body.style.overflow
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const closeOnKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') onCloseRef.current()
       if (event.key !== 'Tab') return
 
       const focusable = Array.from(modalRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? []).filter(element => !element.hidden && element.getAttribute('aria-hidden') !== 'true')
@@ -45,7 +47,7 @@ export function DetailModal({ open, title, onClose, size = 'task', children }: D
       document.removeEventListener('keydown', closeOnKeyDown)
       if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus()
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
 
@@ -53,12 +55,12 @@ export function DetailModal({ open, title, onClose, size = 'task', children }: D
     <div
       className="detail-modal-backdrop"
       data-testid="detail-modal-backdrop"
-      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+      onMouseDown={(event) => event.target === event.currentTarget && onCloseRef.current()}
     >
       <section ref={modalRef} className={`detail-modal detail-modal--${size}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <header className="detail-modal-header">
           <h2 id={titleId}>{title}</h2>
-          <button ref={closeButtonRef} className="icon-button" aria-label={`关闭${title}`} onClick={onClose}>×</button>
+          <button ref={closeButtonRef} className="icon-button" aria-label={`关闭${title}`} onClick={() => onCloseRef.current()}>×</button>
         </header>
         <div className="detail-modal-body">{children}</div>
       </section>

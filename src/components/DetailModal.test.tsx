@@ -90,6 +90,29 @@ describe('DetailModal', () => {
     expect(closeButton).toHaveFocus()
   })
 
+  it('keeps inner focus on callback rerender and uses the latest Escape callback', () => {
+    const initialOnClose = vi.fn()
+    const latestOnClose = vi.fn()
+    const { rerender } = render(
+      <DetailModal open title="任务详情" onClose={initialOnClose}>
+        <textarea aria-label="备注" />
+      </DetailModal>,
+    )
+    const textarea = screen.getByRole('textbox', { name: '备注' })
+    textarea.focus()
+
+    rerender(
+      <DetailModal open title="任务详情" onClose={latestOnClose}>
+        <textarea aria-label="备注" />
+      </DetailModal>,
+    )
+
+    expect(screen.getByRole('textbox', { name: '备注' })).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(initialOnClose).not.toHaveBeenCalled()
+    expect(latestOnClose).toHaveBeenCalledTimes(1)
+  })
+
   it('closes on Escape and backdrop click but not content click', () => {
     const onClose = vi.fn()
 
