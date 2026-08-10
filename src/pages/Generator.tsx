@@ -48,7 +48,7 @@ export function GeneratorPage() {
   const materials = useQuery({ queryKey: ['materials'], queryFn: () => fetchMaterials({ size: 100 }) })
   const estimate = useQuery({ queryKey: ['taskEstimate', values.generate_count, values.platform], queryFn: () => estimateTask({ generate_count: values.generate_count, platform: values.platform }), enabled: values.generate_count > 0, staleTime: 30_000 })
   const upload = useMutation({ mutationFn: (file: File) => uploadMaterial(file, values.platform), onSuccess: result => { if (result.data) { setValue('material_ids', [...values.material_ids, result.data.material_id]); if (result.data.file_ref) setValue('file_refs', [...values.file_refs, result.data.file_ref]) } } })
-  const create = useMutation({ mutationFn: createGenerateTask, onSuccess: result => { if (result.data?.task_id) navigate(`/tasks/${result.data.task_id}`) }, onError: () => setNotice('任务创建失败，请检查服务状态后重试。') })
+  const create = useMutation({ mutationFn: createGenerateTask, onSuccess: result => { if (result.data?.task_id) navigate(`/tasks?task=${encodeURIComponent(result.data.task_id)}`) }, onError: () => setNotice('任务创建失败，请检查服务状态后重试。') })
   const estimateData = estimate.data?.data
   const selectedMaterials = useMemo(() => materials.data?.data?.items.filter(item => values.material_ids.includes(item.material_id)) ?? [], [materials.data, values.material_ids])
 
