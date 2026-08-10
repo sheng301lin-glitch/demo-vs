@@ -2,10 +2,11 @@ import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { GeneratorPage } from './Generator'
 import { TasksPage } from './Tasks'
 import { ContentListPage } from './ContentList'
+import { App } from '../App'
 import { createGenerateTask, estimateTask, fetchContentGroupDetail, fetchContentGroups, fetchContentVersions, fetchTaskDetail, fetchTaskEvents, fetchTasks } from '../api/endpoints'
 
 vi.mock('../api/endpoints', async () => {
@@ -29,6 +30,14 @@ vi.mock('../api/endpoints', async () => {
 
 afterEach(() => cleanup())
 
+beforeAll(() => {
+  window.matchMedia = vi.fn().mockReturnValue({
+    matches: false,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  })
+})
+
 function LocationProbe() {
   const location = useLocation()
   return <output data-testid="location">{location.pathname}{location.search}</output>
@@ -46,6 +55,16 @@ function renderPage(element: React.ReactNode, initialEntries: string[] = ['/']) 
 const failedTask = { task_id: 'task_failed', task_name: '失败任务', task_type: 'GENERATE', platform: 'XHS', priority: 'NORMAL', status: 'FAILED', current_node: 'generator', progress: 40, requested_count: 2, success_count: 1, failed_count: 1, retry_count: 0, created_at: '2026-08-09T10:00:00' }
 
 describe('core workspace pages', () => {
+  it('redirects a legacy task detail URL to the queue modal URL', async () => {
+    renderPage(<><App /><LocationProbe /></>, ['/tasks/task_legacy'])
+    expect(await screen.findByTestId('location')).toHaveTextContent('/tasks?task=task_legacy')
+  })
+
+  it('redirects a legacy content detail URL to the content modal URL', async () => {
+    renderPage(<><App /><LocationProbe /></>, ['/content/group_legacy'])
+    expect(await screen.findByTestId('location')).toHaveTextContent('/content?group=group_legacy')
+  })
+
   it('renders the five-section task creation workflow and live summary', () => {
     renderPage(<GeneratorPage />)
     expect(screen.getByText('基础信息')).toBeInTheDocument()
