@@ -15,6 +15,7 @@ import type {
   CapabilityRoute,
   ContentGroupDetail,
   ContentGroupListResponse,
+  ContentTaskListResponse,
   ContentResultItem,
   TaskStatistics,
   ContentStatistics,
@@ -98,6 +99,7 @@ export async function fetchRoutes(): Promise<APIResponse<CapabilityRoute[]>> {
 // ── 内容管理 ──
 export async function fetchContentGroups(params?: {
   task_id?: string
+  task_name?: string
   platform?: string
   status?: string
   keyword?: string
@@ -109,6 +111,16 @@ export async function fetchContentGroups(params?: {
   size?: number
 }): Promise<APIResponse<ContentGroupListResponse>> {
   return apiClient.get('/content/groups', { params })
+}
+
+export async function fetchContentTasks(params?: {
+  platform?: string
+  keyword?: string
+  task_status?: string
+  page?: number
+  size?: number
+}): Promise<APIResponse<ContentTaskListResponse>> {
+  return apiClient.get('/content/tasks', { params })
 }
 
 export async function fetchContentStatistics(): Promise<APIResponse<ContentStatistics>> {

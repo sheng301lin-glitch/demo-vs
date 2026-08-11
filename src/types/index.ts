@@ -25,7 +25,7 @@ export interface Requirement {
 // --- 参考资料 ---
 export interface Resources {
   material_ids: string[]
-  urls: string[]
+  urls?: string[]
   file_refs: string[]
 }
 
@@ -175,6 +175,64 @@ export const STATUS_MAP: Record<string, { label: string; color: string }> = {
   CANCELLED: { label: '已取消', color: '#9ca3af' },
 }
 
+// --- 优先级映射 ---
+export const PRIORITY_MAP: Record<string, string> = {
+  LOW: '低',
+  NORMAL: '普通',
+  HIGH: '高',
+}
+
+// --- 执行方式映射 ---
+export const EXECUTION_MODE_MAP: Record<string, string> = {
+  IMMEDIATE: '立即执行',
+  QUEUE: '加入队列',
+  SCHEDULED: '定时执行',
+}
+
+// --- 可信度映射 ---
+export const CONFIDENCE_MAP: Record<string, string> = {
+  LOW: '低',
+  MEDIUM: '中',
+  HIGH: '高',
+}
+
+// --- 模型/路由状态映射 ---
+export const MODEL_STATUS_MAP: Record<string, string> = {
+  ENABLED: '启用',
+  DISABLED: '停用',
+  MAINTENANCE: '维护中',
+}
+
+// --- 模型类型映射 ---
+export const MODEL_TYPE_MAP: Record<string, string> = {
+  TEXT: '文本生成',
+  IMAGE: '图片生成',
+  EMBEDDING: '嵌入',
+}
+
+// --- 路由能力映射 ---
+export const CAPABILITY_MAP: Record<string, string> = {
+  creative_generation: '创意生成',
+  content_evaluation: '内容评估',
+  reasoning: '推理',
+  long_context: '长上下文',
+  low_cost: '低成本',
+  image_generation: '图片生成',
+  text_gen: '文本生成',
+  image_gen: '图片生成',
+  embedding: '嵌入',
+  translate: '翻译',
+}
+
+// --- 任务事件类型映射 ---
+export const EVENT_TYPE_MAP: Record<string, { label: string; color: string }> = {
+  NODE_START: { label: '节点开始', color: '#3b82f6' },
+  NODE_END: { label: '节点完成', color: '#10b981' },
+  PROGRESS: { label: '进度更新', color: '#8b5cf6' },
+  ERROR: { label: '错误', color: '#ef4444' },
+  CONTENT_STORED: { label: '内容已存储', color: '#10b981' },
+}
+
 // --- 内容结果 ---
 export interface ContentResultItem {
   content_id: string
@@ -198,6 +256,7 @@ export interface ContentResultItem {
 export interface ContentGroupDetail {
   content_group_id: string
   root_task_id: string
+  root_task_name: string | null
   latest_task_id: string
   generation_index: number
   platform: string
@@ -207,6 +266,24 @@ export interface ContentGroupDetail {
   current_content: ContentResultItem | null
   created_at: string | null
   updated_at: string | null
+}
+
+// --- 内容任务摘要（来源任务 + 内容组统计） ---
+export interface ContentTaskItem {
+  task_id: string
+  task_name: string
+  task_type: string
+  task_status: string
+  platform: string
+  content_count: number
+  latest_updated_at: string | null
+}
+
+export interface ContentTaskListResponse {
+  items: ContentTaskItem[]
+  total: number
+  page: number
+  size: number
 }
 
 // --- 内容组列表响应 ---
@@ -260,6 +337,13 @@ export interface TaskListItem {
   queued_at: string | null
   started_at: string | null
   completed_at: string | null
+  model_summary: string[]
+  usage_summary: {
+    total_cost?: number
+    total_input_tokens?: number
+    total_output_tokens?: number
+    total_calls?: number
+  }
 }
 
 export interface TaskTrendPoint {

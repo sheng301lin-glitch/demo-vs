@@ -7,7 +7,7 @@ import { GeneratorPage } from './Generator'
 import { TasksPage } from './Tasks'
 import { ContentListPage } from './ContentList'
 import { App } from '../App'
-import { createGenerateTask, estimateTask, fetchContentGroupDetail, fetchContentGroups, fetchContentVersions, fetchTaskDetail, fetchTaskEvents, fetchTasks } from '../api/endpoints'
+import { createGenerateTask, createOptimizeTask, estimateTask, fetchContentGroupDetail, fetchContentGroups, fetchContentVersions, fetchTaskDetail, fetchTaskEvents, fetchTasks } from '../api/endpoints'
 
 vi.mock('../api/endpoints', async () => {
   const actual = await vi.importActual<typeof import('../api/endpoints')>('../api/endpoints')
@@ -21,6 +21,7 @@ vi.mock('../api/endpoints', async () => {
     fetchContentGroups: vi.fn().mockResolvedValue({ data: { items: [], total: 0, page: 1, size: 20 } }),
     fetchContentGroupDetail: vi.fn(),
     fetchContentVersions: vi.fn(),
+    createOptimizeTask: vi.fn(),
     fetchContentStatistics: vi.fn().mockResolvedValue({ data: { total_groups: 0, today_new_groups: 0, average_current_score: null, optimized_groups: 0, archived_groups: 0, status_distribution: {}, score_distribution: {}, daily_trend: [] } }),
     fetchMaterials: vi.fn().mockResolvedValue({ data: { items: [], total: 0, page: 1, size: 20 } }),
     estimateTask: vi.fn().mockResolvedValue({ data: { estimated_tokens: null, estimated_duration_seconds: null, estimated_cost: null, confidence: 'LOW' } }),
@@ -157,6 +158,20 @@ describe('core workspace pages', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeEnabled()
   })
 
+  it('toggles task request parameters in the detail dialog', async () => {
+    vi.mocked(fetchTasks).mockResolvedValueOnce({ data: { items: [failedTask], total: 1, page: 1, size: 20 } } as never)
+    vi.mocked(fetchTaskDetail).mockResolvedValueOnce({ data: { ...failedTask, request_id: 'req_1', current_iteration: 0, max_iteration: 2, input_params: { request_id: 'req_param_toggle', platform: 'XHS' }, image_requested_count: 0, image_success_count: 0, image_failed_count: 0 } } as never)
+    vi.mocked(fetchTaskEvents).mockResolvedValueOnce({ data: [] } as never)
+    renderPage(<TasksPage />)
+
+    fireEvent.click(await screen.findByText('失败任务'))
+    expect(await screen.findByText((text) => text.includes('req_param_toggle'))).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '请求参数' }))
+    expect(screen.queryByText((text) => text.includes('req_param_toggle'))).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '请求参数' }))
+    expect(await screen.findByText((text) => text.includes('req_param_toggle'))).toBeInTheDocument()
+  })
+
   it('opens task details when a focused task row receives Enter', async () => {
     vi.mocked(fetchTasks).mockResolvedValueOnce({ data: { items: [failedTask], total: 1, page: 1, size: 20 } } as never)
     vi.mocked(fetchTaskDetail).mockResolvedValueOnce({ data: { ...failedTask, request_id: 'req_1', current_iteration: 0, max_iteration: 2, input_params: {}, image_requested_count: 0, image_success_count: 0, image_failed_count: 0 } } as never)
@@ -213,6 +228,53 @@ describe('core workspace pages', () => {
     fireEvent.keyDown(row, { key: ' ' })
 
     expect(await screen.findByRole('dialog', { name: '内容详情' })).toBeInTheDocument()
+  })
+
+  it('submits one manual optimization version from the content dialog', async () => {
+    const content = { content_id: 'content_2', task_id: 'task_1', content_group_id: 'group_2', title: '防晒标题', body: '{"body":"当前正文","hashtags":[],"summary":"当前摘要"}', platform: 'XHS', version_no: 2, score: 86, model_name: 'deepseek-chat', provider: 'deepseek', evaluation_detail: {}, media_json: null, status: 'ACTIVE', created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    const group = { content_group_id: 'group_2', root_task_id: 'task_1', latest_task_id: 'task_1', generation_index: 1, platform: 'XHS', current_version_no: 2, version_count: 2, status: 'ACTIVE', current_content: content, created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    vi.mocked(fetchContentGroups).mockResolvedValueOnce({ data: { items: [group], total: 1, page: 1, size: 20 } } as never)
+    vi.mocked(fetchContentGroupDetail).mockResolvedValueOnce({ data: group } as never)
+    vi.mocked(fetchContentVersions).mockResolvedValueOnce({ data: [content] } as never)
+    vi.mocked(createOptimizeTask).mockResolvedValueOnce({ data: { task_id: 'task_opt', status: 'QUEUED', accepted: true } } as never)
+    renderPage(<ContentListPage />)
+
+    fireEvent.click(await screen.findByText('防晒标题'))
+    fireEvent.click(await screen.findByRole('button', { name: '优化当前版本' }))
+
+    await waitFor(() => expect(vi.mocked(createOptimizeTask)).toHaveBeenCalled())
+    const optimizeCalls = vi.mocked(createOptimizeTask).mock.calls
+    expect(optimizeCalls[optimizeCalls.length - 1][0]).toEqual(expect.objectContaining({
+      source_content_ids: ['content_2'],
+      quality: expect.objectContaining({ enable_auto_optimize: false, max_iteration: 0 }),
+    }))
+  })
+
+  it('compares any two selected content versions and defaults to the latest two', async () => {
+    const current = { content_id: 'content_v3', task_id: 'task_2', content_group_id: 'group_3', title: '新版标题', body: '{"body":"新版正文","hashtags":["新版"],"summary":"新版摘要"}', platform: 'XHS', version_no: 3, score: 90, model_name: 'deepseek-chat', provider: 'deepseek', evaluation_detail: {}, media_json: null, status: 'ACTIVE', created_at: '2026-08-10T02:50:36', updated_at: '2026-08-10T02:50:36' }
+    const middle = { ...current, content_id: 'content_v2', title: '中间版标题', body: '{"body":"中间版正文","hashtags":["中间版"],"summary":"中间版摘要"}', version_no: 2, score: 85, created_at: '2026-08-10T02:45:36', updated_at: '2026-08-10T02:45:36' }
+    const old = { ...current, content_id: 'content_v1', title: '旧版标题', body: '{"body":"旧版正文","hashtags":["旧版"],"summary":"旧版摘要"}', version_no: 1, score: 80, created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    const group = { content_group_id: 'group_3', root_task_id: 'task_2', latest_task_id: 'task_2', generation_index: 1, platform: 'XHS', current_version_no: 3, version_count: 3, status: 'ACTIVE', current_content: current, created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:50:36' }
+    vi.mocked(fetchContentGroups).mockResolvedValueOnce({ data: { items: [group], total: 1, page: 1, size: 20 } } as never)
+    vi.mocked(fetchContentGroupDetail).mockResolvedValueOnce({ data: group } as never)
+    vi.mocked(fetchContentVersions).mockResolvedValueOnce({ data: [current, middle, old] } as never)
+    renderPage(<ContentListPage />)
+
+    fireEvent.click(await screen.findByText('新版标题'))
+
+    expect(await screen.findByText('v3 对比 v2')).toBeInTheDocument()
+    expect(screen.getAllByText('新版正文').length).toBeGreaterThan(0)
+    expect(screen.getByText('中间版正文')).toBeInTheDocument()
+    expect(screen.getAllByText('#新版').length).toBeGreaterThan(0)
+    expect(screen.getByText('#中间版')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('选择版本 A'), { target: { value: 'content_v2' } })
+    fireEvent.change(screen.getByLabelText('选择版本 B'), { target: { value: 'content_v1' } })
+
+    expect(await screen.findByText('v2 对比 v1')).toBeInTheDocument()
+    expect(screen.getAllByText('中间版正文').length).toBeGreaterThan(0)
+    expect(screen.getByText('旧版正文')).toBeInTheDocument()
+    expect(screen.getByText('#旧版')).toBeInTheDocument()
   })
 
   it('keeps content pagination controls usable', async () => {

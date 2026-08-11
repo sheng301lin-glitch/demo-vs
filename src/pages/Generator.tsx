@@ -3,9 +3,9 @@ import { Controller, useForm, type FieldErrors, type Resolver } from 'react-hook
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 import { z } from 'zod'
-import { CalendarClock, FileUp, Link2, Loader2, Minus, Plus, Send, ShieldCheck, Sparkles, X } from 'lucide-react'
+import { CalendarClock, FileUp, Loader2, Minus, Plus, Send, ShieldCheck, Sparkles, X } from 'lucide-react'
 import { createGenerateTask, estimateTask, fetchHealth, fetchMaterials, uploadMaterial } from '../api/endpoints'
-import { PLATFORMS } from '../types'
+import { CONFIDENCE_MAP, EXECUTION_MODE_MAP, PLATFORMS, PRIORITY_MAP } from '../types'
 import { formatCompactNumber, formatDuration } from '../utils/dashboard'
 
 const schema = z.object({
@@ -13,7 +13,7 @@ const schema = z.object({
   platform: z.string().min(1), generate_count: z.number().min(1).max(100),
   priority: z.enum(['LOW', 'NORMAL', 'HIGH']), content_direction: z.string().min(1, '请输入内容方向'),
   target_audience: z.string(), tone_style: z.string(), content_goal: z.string(), additional_instruction: z.string(),
-  keywords: z.array(z.string()), banned_words: z.array(z.string()), material_ids: z.array(z.string()), urls: z.array(z.string()), file_refs: z.array(z.string()),
+  keywords: z.array(z.string()), banned_words: z.array(z.string()), material_ids: z.array(z.string()), file_refs: z.array(z.string()),
   quality_threshold: z.number().min(0).max(100), enable_evaluation: z.boolean(), enable_auto_optimize: z.boolean(), max_iteration: z.number().min(0).max(10),
   image_enabled: z.boolean(), image_count: z.number().min(1).max(10), image_aspect_ratio: z.string(),
   execution_mode: z.enum(['IMMEDIATE', 'QUEUE', 'SCHEDULED']), scheduled_at: z.string(),
@@ -41,13 +41,22 @@ export function GeneratorPage() {
   const [notice, setNotice] = useState<string | null>(null)
   const { register, control, handleSubmit, watch, setValue, formState: { errors } } = useForm<FormData>({
     resolver: formResolver,
-    defaultValues: { task_name: '', platform: 'XHS', generate_count: 10, priority: 'NORMAL', content_direction: '', target_audience: '', tone_style: '', content_goal: '', additional_instruction: '', keywords: [], banned_words: [], material_ids: [], urls: [], file_refs: [], quality_threshold: 80, enable_evaluation: true, enable_auto_optimize: true, max_iteration: 2, image_enabled: false, image_count: 1, image_aspect_ratio: 'AUTO', execution_mode: 'IMMEDIATE', scheduled_at: '' },
+    defaultValues: { task_name: '', platform: 'XHS', generate_count: 10, priority: 'NORMAL', content_direction: '', target_audience: '', tone_style: '', content_goal: '', additional_instruction: '', keywords: [], banned_words: [], material_ids: [], file_refs: [], quality_threshold: 80, enable_evaluation: true, enable_auto_optimize: true, max_iteration: 2, image_enabled: false, image_count: 1, image_aspect_ratio: 'AUTO', execution_mode: 'IMMEDIATE', scheduled_at: '' },
   })
   const values = watch()
   const health = useQuery({ queryKey: ['health'], queryFn: fetchHealth, refetchInterval: 30_000 })
   const materials = useQuery({ queryKey: ['materials'], queryFn: () => fetchMaterials({ size: 100 }) })
   const estimate = useQuery({ queryKey: ['taskEstimate', values.generate_count, values.platform], queryFn: () => estimateTask({ generate_count: values.generate_count, platform: values.platform }), enabled: values.generate_count > 0, staleTime: 30_000 })
-  const upload = useMutation({ mutationFn: (file: File) => uploadMaterial(file, values.platform), onSuccess: result => { if (result.data) { setValue('material_ids', [...values.material_ids, result.data.material_id]); if (result.data.file_ref) setValue('file_refs', [...values.file_refs, result.data.file_ref]) } } })
+  const upload = useMutation({
+    mutationFn: (file: File) => uploadMaterial(file, values.platform),
+    onSuccess: result => {
+      if (result.data) {
+        setValue('material_ids', [...values.material_ids, result.data.material_id])
+        if (result.data.file_ref) setValue('file_refs', [...values.file_refs, result.data.file_ref])
+        materials.refetch()
+      }
+    },
+  })
   const create = useMutation({ mutationFn: createGenerateTask, onSuccess: result => { if (result.data?.task_id) navigate(`/tasks?task=${encodeURIComponent(result.data.task_id)}`) }, onError: () => setNotice('任务创建失败，请检查服务状态后重试。') })
   const estimateData = estimate.data?.data
   const selectedMaterials = useMemo(() => materials.data?.data?.items.filter(item => values.material_ids.includes(item.material_id)) ?? [], [materials.data, values.material_ids])
@@ -55,7 +64,7 @@ export function GeneratorPage() {
   const submit = (data: FormData) => create.mutate({
     request_id: `req_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`, task_name: data.task_name, platform: data.platform, generate_count: data.generate_count, priority: data.priority,
     requirement: { content_direction: data.content_direction, target_audience: data.target_audience, tone_style: data.tone_style, keywords: data.keywords, banned_words: data.banned_words, content_goal: data.content_goal, additional_instruction: data.additional_instruction },
-    resources: { material_ids: data.material_ids, urls: data.urls, file_refs: data.file_refs },
+    resources: { material_ids: data.material_ids, file_refs: data.file_refs },
     quality: { route_strategy: 'AUTO', threshold: data.quality_threshold, enable_evaluation: data.enable_evaluation, enable_auto_optimize: data.enable_auto_optimize, max_iteration: data.max_iteration },
     image_generation: { enabled: data.image_enabled, count_per_content: data.image_count, aspect_ratio: data.image_aspect_ratio, style_prompt: null, route_strategy: 'AUTO', failure_policy: 'ALLOW_TEXT_SUCCESS' },
     execution: { mode: data.execution_mode, scheduled_at: data.execution_mode === 'SCHEDULED' && data.scheduled_at ? new Date(data.scheduled_at).toISOString() : null },
@@ -79,9 +88,16 @@ export function GeneratorPage() {
           <div className="form-field"><label>内容目标</label><input className="field" placeholder="提升收藏与互动" {...register('content_goal')} /></div><div className="form-field"><label>补充说明</label><input className="field" placeholder="避免夸大功效" {...register('additional_instruction')} /></div>
         </div></section>
         <section className="card form-section"><h2 className="section-title"><span className="section-index">3</span>素材与文件</h2><div className="form-grid cols-2">
-          <label className="dropzone"><FileUp size={22} /><div>{upload.isPending ? '正在上传解析...' : '点击选择文件上传'}</div><small>PDF / DOCX / TXT / CSV / JSON，最大 50MB</small><input hidden type="file" accept=".pdf,.docx,.txt,.md,.csv,.json" onChange={e => { const file = e.target.files?.[0]; if (file) upload.mutate(file) }} /></label>
-          <div className="form-field"><label>引用素材库</label><select className="select" value="" onChange={e => { if (e.target.value && !values.material_ids.includes(e.target.value)) setValue('material_ids', [...values.material_ids, e.target.value]) }}><option value="">选择已有素材</option>{materials.data?.data?.items.map(item => <option value={item.material_id} key={item.material_id}>{item.title}</option>)}</select><div className="tags">{selectedMaterials.map(item => <span className="tag" key={item.material_id}>{item.title}<button type="button" onClick={() => setValue('material_ids', values.material_ids.filter(id => id !== item.material_id))}><X size={11} /></button></span>)}</div></div>
-          <div className="form-field wide"><label><Link2 size={12} /> 参考 URL</label><Controller name="urls" control={control} render={({ field }) => <TagInput value={field.value} onChange={field.onChange} placeholder="输入 HTTPS 地址后按回车" />} /></div>
+          <div className="form-field">
+            <label>上传文件</label>
+            <label className="dropzone"><FileUp size={22} /><div>{upload.isPending ? '正在上传解析...' : '点击选择文件上传'}</div><small>PDF / DOCX / TXT / CSV / JSON，最大 50MB</small><input hidden type="file" accept=".pdf,.docx,.txt,.md,.csv,.json" onChange={e => { const file = e.target.files?.[0]; if (file) upload.mutate(file) }} /></label>
+            <div className="help">{upload.isSuccess ? '✓ 上传成功' : upload.isError ? '✗ 上传失败，请重试' : ''}</div>
+          </div>
+          <div className="form-field">
+            <label>已选素材</label>
+            <select className="select" value="" onChange={e => { if (e.target.value && !values.material_ids.includes(e.target.value)) setValue('material_ids', [...values.material_ids, e.target.value]) }}><option value="">从素材库添加</option>{materials.data?.data?.items.filter(item => !values.material_ids.includes(item.material_id)).map(item => <option value={item.material_id} key={item.material_id}>{item.title}</option>)}</select>
+            <div className="tags">{selectedMaterials.map(item => (<span className="tag" key={item.material_id}>{item.filename || item.title}<button type="button" onClick={() => { setValue('material_ids', values.material_ids.filter(id => id !== item.material_id)); if (item.file_ref) setValue('file_refs', values.file_refs.filter(ref => ref !== item.file_ref)) }}><X size={11} /></button></span>))}</div>
+          </div>
         </div></section>
         <section className="card form-section"><h2 className="section-title"><span className="section-index">4</span>模型与质量</h2><div className="form-grid">
           <div className="form-field"><label>质量阈值</label><input className="field" type="number" {...register('quality_threshold', { valueAsNumber: true })} /></div><div className="form-field"><label>最大优化轮数</label><input className="field" type="number" {...register('max_iteration', { valueAsNumber: true })} /></div><div className="form-field"><label>图片比例</label><select className="select" {...register('image_aspect_ratio')}><option value="AUTO">自动</option><option value="3:4">3:4</option><option value="1:1">1:1</option><option value="16:9">16:9</option></select></div>
@@ -93,8 +109,8 @@ export function GeneratorPage() {
         </div></section>
       </div>
       <aside className="sticky-column">
-        <section className="card"><div className="card-header">任务摘要 <Sparkles size={15} color="var(--primary)" /></div><div className="card-body"><dl className="summary-list"><dt>任务名称</dt><dd>{values.task_name || '待填写'}</dd><dt>平台</dt><dd>{PLATFORMS.find(p => p.value === values.platform)?.label}</dd><dt>内容方向</dt><dd>{values.content_direction || '待填写'}</dd><dt>生成数量</dt><dd>{values.generate_count} 篇</dd><dt>优先级</dt><dd>{values.priority}</dd><dt>执行方式</dt><dd>{values.execution_mode}</dd><dt>素材</dt><dd>{values.material_ids.length + values.urls.length} 项</dd></dl></div></section>
-        <section className="card"><div className="card-header">预计资源消耗 <ShieldCheck size={15} color="var(--green)" /></div><div className="card-body"><dl className="summary-list"><dt>预计 Token</dt><dd>{estimateData?.estimated_tokens ? `${formatCompactNumber(estimateData.estimated_tokens.min)}–${formatCompactNumber(estimateData.estimated_tokens.max)}` : '暂无历史数据'}</dd><dt>预计时长</dt><dd>{estimateData?.estimated_duration_seconds ? `${formatDuration(estimateData.estimated_duration_seconds.min * 1000)}–${formatDuration(estimateData.estimated_duration_seconds.max * 1000)}` : '暂无历史数据'}</dd><dt>预计成本</dt><dd>{estimateData?.estimated_cost ? `$${estimateData.estimated_cost.min.toFixed(3)}–$${estimateData.estimated_cost.max.toFixed(3)}` : '暂无定价数据'}</dd><dt>可信度</dt><dd>{estimateData?.confidence ?? 'LOW'}</dd></dl></div></section>
+        <section className="card"><div className="card-header">任务摘要 <Sparkles size={15} color="var(--primary)" /></div><div className="card-body"><dl className="summary-list"><dt>任务名称</dt><dd>{values.task_name || '待填写'}</dd><dt>平台</dt><dd>{PLATFORMS.find(p => p.value === values.platform)?.label}</dd><dt>内容方向</dt><dd>{values.content_direction || '待填写'}</dd><dt>生成数量</dt><dd>{values.generate_count} 篇</dd><dt>优先级</dt><dd>{PRIORITY_MAP[values.priority] ?? values.priority}</dd><dt>执行方式</dt><dd>{EXECUTION_MODE_MAP[values.execution_mode] ?? values.execution_mode}</dd><dt>素材</dt><dd>{values.material_ids.length} 项</dd></dl></div></section>
+        <section className="card"><div className="card-header">预计资源消耗 <ShieldCheck size={15} color="var(--green)" /></div><div className="card-body"><dl className="summary-list"><dt>预计 Token</dt><dd>{estimateData?.estimated_tokens ? `${formatCompactNumber(estimateData.estimated_tokens.min)}–${formatCompactNumber(estimateData.estimated_tokens.max)}` : '暂无历史数据'}</dd><dt>预计时长</dt><dd>{estimateData?.estimated_duration_seconds ? `${formatDuration(estimateData.estimated_duration_seconds.min * 1000)}–${formatDuration(estimateData.estimated_duration_seconds.max * 1000)}` : '暂无历史数据'}</dd><dt>预计成本</dt><dd>{estimateData?.estimated_cost ? `$${estimateData.estimated_cost.min.toFixed(3)}–$${estimateData.estimated_cost.max.toFixed(3)}` : '暂无定价数据'}</dd><dt>可信度</dt><dd>{CONFIDENCE_MAP[estimateData?.confidence ?? ''] ?? estimateData?.confidence ?? '低'}</dd></dl></div></section>
         <button className="button primary" type="submit" disabled={create.isPending || health.data?.data?.status !== 'ok'}>{create.isPending ? <Loader2 size={15} /> : <Send size={15} />}立即创建</button>
       </aside>
     </form>

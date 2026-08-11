@@ -3,6 +3,7 @@
 // ============================================================================
 import { useState } from 'react'
 import { Loader2, Cpu, GitBranch, ChevronDown, ChevronUp } from 'lucide-react'
+import { CAPABILITY_MAP, MODEL_STATUS_MAP, MODEL_TYPE_MAP } from '../types'
 import { useModels, useRoutes } from '../hooks/useQueries'
 
 export function SettingsPage() {
@@ -63,14 +64,14 @@ export function SettingsPage() {
                       <td style={td}>{m.display_name}</td>
                       <td style={td}>{m.provider}</td>
                       <td style={{ ...td, fontFamily: 'monospace', fontSize: 12 }}>{m.model_name}</td>
-                      <td style={td}>{m.model_type}</td>
+                      <td style={td}>{MODEL_TYPE_MAP[m.model_type] ?? m.model_type}</td>
                       <td style={td}>
                         <span style={{
                           ...badge,
-                          background: m.status === 'ACTIVE' ? '#10b98118' : '#f59e0b18',
-                          color: m.status === 'ACTIVE' ? '#10b981' : '#f59e0b',
+                          background: m.status === 'ENABLED' ? '#10b98118' : '#f59e0b18',
+                          color: m.status === 'ENABLED' ? '#10b981' : '#f59e0b',
                         }}>
-                          {m.status}
+                          {MODEL_STATUS_MAP[m.status] ?? m.status}
                         </span>
                       </td>
                       <td style={td}>{m.rpm_limit ?? '-'}</td>
@@ -116,7 +117,7 @@ export function SettingsPage() {
                   {routes.map((r) => (
                     <tr key={r.route_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                       <td style={{ ...td, fontFamily: 'monospace', fontSize: 12 }}>{r.route_id.slice(0, 16)}...</td>
-                      <td style={td}>{r.capability}</td>
+                      <td style={td}>{CAPABILITY_MAP[r.capability] ?? r.capability}</td>
                       <td style={{ ...td, fontFamily: 'monospace', fontSize: 12 }}>{r.model_id.slice(0, 12)}...</td>
                       <td style={td}>{r.priority}</td>
                       <td style={td}>{r.weight}</td>
@@ -124,10 +125,10 @@ export function SettingsPage() {
                       <td style={td}>
                         <span style={{
                           ...badge,
-                          background: r.status === 'ACTIVE' ? '#10b98118' : '#f59e0b18',
-                          color: r.status === 'ACTIVE' ? '#10b981' : '#f59e0b',
+                          background: r.status === 'ENABLED' ? '#10b98118' : '#f59e0b18',
+                          color: r.status === 'ENABLED' ? '#10b981' : '#f59e0b',
                         }}>
-                          {r.status}
+                          {MODEL_STATUS_MAP[r.status] ?? r.status}
                         </span>
                       </td>
                     </tr>

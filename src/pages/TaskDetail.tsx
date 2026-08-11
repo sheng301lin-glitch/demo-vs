@@ -8,7 +8,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useTaskDetail, useCancelTask, useRetryTask } from '../hooks/useQueries'
 import { fetchTaskEvents, fetchTaskContent } from '../api/endpoints'
 import type { TaskEventItem, ContentGroupDetail } from '../types'
-import { STATUS_MAP, PLATFORMS } from '../types'
+import { EVENT_TYPE_MAP, STATUS_MAP, PLATFORMS } from '../types'
+import { formatEventLabel, NODE_LABELS, formatBeijingTime } from '../utils/dashboard'
 
 export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>()
@@ -162,7 +163,7 @@ export function TaskDetailPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
             <StatCard icon={<CheckCircle2 size={14} color="#10b981" />} label="成功" value={`${task.success_count}/${task.requested_count}`} />
             <StatCard icon={<XCircle size={14} color="#ef4444" />} label="失败" value={String(task.failed_count)} />
-            <StatCard icon={<Clock size={14} color="#6366f1" />} label="平台" value={task.platform} />
+            <StatCard icon={<Clock size={14} color="#6366f1" />} label="平台" value={PLATFORMS.find(p => p.value === task.platform)?.label ?? task.platform} />
             <StatCard icon={<AlertTriangle size={14} color="#f59e0b" />} label="迭代" value={`${task.current_iteration}/${task.max_iteration}`} />
           </div>
 
@@ -361,19 +362,12 @@ function TimeRow({ label, time }: { label: string; time: string | null | undefin
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
       <span style={{ color: '#6b7280' }}>{label}</span>
       <span style={{ color: '#374151' }}>
-        {time ? new Date(time).toLocaleString('zh-CN') : '-'}
+        {time ? formatBeijingTime(time) : '-'}
       </span>
     </div>
   )
 }
 
-const EVENT_TYPE_MAP: Record<string, { color: string; label: string }> = {
-  NODE_START: { color: '#3b82f6', label: '节点开始' },
-  NODE_END: { color: '#10b981', label: '节点完成' },
-  PROGRESS: { color: '#8b5cf6', label: '进度更新' },
-  ERROR: { color: '#ef4444', label: '错误' },
-  CONTENT_STORED: { color: '#10b981', label: '内容已存储' },
-}
 
 function EventTimeline({ taskId, isRunning, events }: { taskId: string; isRunning: boolean; events: TaskEventItem[] }) {
   const [expanded, setExpanded] = useState(false)
@@ -402,6 +396,7 @@ function EventTimeline({ taskId, isRunning, events }: { taskId: string; isRunnin
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 320, overflow: 'auto' }}>
             {events.map((e) => {
               const meta = EVENT_TYPE_MAP[e.event_type] || { color: '#6b7280', label: e.event_type }
+              const label = formatEventLabel(e.event_type, e.node, null)
               return (
                 <div key={e.event_id} style={{
                   display: 'flex', alignItems: 'flex-start', gap: 10,
@@ -410,10 +405,10 @@ function EventTimeline({ taskId, isRunning, events }: { taskId: string; isRunnin
                   <span style={{
                     ...eventBadge, background: meta.color + '18', color: meta.color,
                   }}>
-                    {meta.label}
+                    {label}
                   </span>
                   <span style={{ fontSize: 12, color: '#6b7280', minWidth: 70 }}>
-                    {e.node || '-'}
+                    {e.node && e.event_type !== 'NODE_START' && e.event_type !== 'NODE_END' ? (NODE_LABELS[e.node] ?? e.node) : '-'}
                   </span>
                   <span style={{ fontSize: 12, color: '#374151', flex: 1 }}>
                     {e.message || ''}
