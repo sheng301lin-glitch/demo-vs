@@ -3,13 +3,34 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router'
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Archive, Copy, FileText, GitCompare, Info, Layers3, Loader2, Search, ShieldCheck, Sparkles, Star, TrendingUp, Wand2, XCircle } from 'lucide-react'
-import { archiveContentGroup, createOptimizeTask, fetchContentGroupDetail, fetchContentGroups, fetchContentStatistics, fetchContentVersions } from '../api/endpoints'
+import { archiveContentGroup, createOptimizeTask, fetchContentGroupDetail, fetchContentGroups, fetchContentStatistics, fetchContentTasks, fetchContentVersions } from '../api/endpoints'
 import { PLATFORMS, type ContentGroupDetail, type ContentResultItem } from '../types'
 import { DetailModal } from '../components/DetailModal'
 import { parseContentPreview } from '../utils/contentPreview'
 
-const PAGE_SIZE = 20
+const PAGE_SIZES = [5, 10, 20, 50]
 const COLORS = ['#665cf6', '#f5b63f', '#aeb4c3', '#ef5350']
+const SCORE_LABELS: Record<string, string> = {
+  accuracy: '准确性',
+  accuracy_score: '准确性',
+  relevance: '相关性',
+  relevance_score: '相关性',
+  structure: '结构性',
+  structure_score: '结构性',
+  appeal: '吸引力',
+  appeal_score: '吸引力',
+  engagement: '互动性',
+  engagement_score: '互动性',
+  originality: '原创性',
+  originality_score: '原创性',
+  readability: '可读性',
+  readability_score: '可读性',
+  content_quality: '内容质量',
+  keyword_coverage: '关键词覆盖',
+  brand_fit: '品牌契合度',
+  compliance: '合规性',
+}
+const HIDDEN_SCORE_KEYS = new Set(['content_index', 'overall_score'])
 
 function historyCount(versionCount: number | null | undefined) {
   return Math.max(0, (versionCount ?? 0) - 1)
@@ -45,15 +66,31 @@ function VersionValue({ value }: { value: string | string[] }) {
 }
 
 function ScoreRows({ current }: { current: ContentResultItem | null | undefined }) {
-  const entries = Object.entries(current?.evaluation_detail ?? {}).filter(([, value]) => typeof value === 'number') as Array<[string, number]>
-  const rows: Array<[string, number]> = entries.length > 0 ? entries : current?.score != null ? [['综合评分', current.score]] : []
+  const detail = current?.evaluation_detail ?? {}
+  const dimensions = detail.dimensions
+  const scoreSource = dimensions && typeof dimensions === 'object' && !Array.isArray(dimensions)
+    ? dimensions as Record<string, unknown>
+    : detail
+  const entries = Object.entries(scoreSource)
+    .filter(([key, value]) => typeof value === 'number' && !HIDDEN_SCORE_KEYS.has(key))
+    .map(([key, value]) => [SCORE_LABELS[key] ?? key, value] as [string, number])
 
-  return <div className="score-list">{rows.map(([key, value]) => <div className="score-row" key={key}><span>{key}</span><div className="progress"><i style={{ width: `${Math.min(100, value)}%` }} /></div><b>{value}</b></div>)}</div>
+  if (entries.length === 0) {
+    return <div className="empty-state compact">暂无维度评分</div>
+  }
+
+  return <div className="score-list">{entries.map(([key, value]) => <div className="score-row" key={key}><span>{key}</span><div className="progress"><i style={{ width: `${Math.min(100, value)}%` }} /></div><b>{value}</b></div>)}</div>
+}
+
+function getOverallScore(current: ContentResultItem | null | undefined) {
+  const detailScore = current?.evaluation_detail?.overall_score
+  return current?.score ?? (typeof detailScore === 'number' ? detailScore : '—')
 }
 
 export function ContentListPage() {
   const qc = useQueryClient()
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(5)
   const [platform, setPlatform] = useState('')
   const [status, setStatus] = useState('')
   const [scoreMin, setScoreMin] = useState('')
@@ -64,19 +101,22 @@ export function ContentListPage() {
   const [rightVersionId, setRightVersionId] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedId = searchParams.get('group')
+  const taskFilter = searchParams.get('task') ?? ''
 
   const groupsQuery = useQuery({
-    queryKey: ['contentGroups', platform, status, scoreMin, scoreMax, keyword, page],
+    queryKey: ['contentGroups', taskFilter, platform, status, scoreMin, scoreMax, keyword, page, pageSize],
     queryFn: () => fetchContentGroups({
+      task_id: taskFilter || undefined,
       platform: platform || undefined,
       status: status || undefined,
       score_min: scoreMin ? Number(scoreMin) : undefined,
       score_max: scoreMax ? Number(scoreMax) : undefined,
       keyword: keyword || undefined,
       page,
-      size: PAGE_SIZE,
+      size: pageSize,
     }),
   })
+  const tasksQuery = useQuery({ queryKey: ['contentTasks', platform, keyword], queryFn: () => fetchContentTasks({ platform: platform || undefined, keyword: keyword || undefined, page: 1, size: 50 }) })
   const statsQuery = useQuery({ queryKey: ['contentStatistics'], queryFn: fetchContentStatistics, refetchInterval: 30_000 })
   const detailQuery = useQuery({ queryKey: ['contentGroup', selectedId], queryFn: () => fetchContentGroupDetail(selectedId!), enabled: !!selectedId })
   const versionsQuery = useQuery({ queryKey: ['contentVersions', selectedId], queryFn: () => fetchContentVersions(selectedId!), enabled: !!selectedId })
@@ -115,6 +155,7 @@ export function ContentListPage() {
   const archive = useMutation({ mutationFn: archiveContentGroup, onSuccess: refresh })
   const optimize = useMutation({ mutationFn: createOptimizeTask, onSuccess: refresh })
   const groups = groupsQuery.data?.data?.items ?? []
+  const contentTasks = tasksQuery.data?.data?.items ?? []
   const total = groupsQuery.data?.data?.total ?? 0
   const stats = statsQuery.data?.data
   const detail = detailQuery.data?.data
@@ -125,7 +166,15 @@ export function ContentListPage() {
   const leftVersion = leftVersionId ? versions.find(version => version.content_id === leftVersionId) ?? null : null
   const rightVersion = rightVersionId ? versions.find(version => version.content_id === rightVersionId) ?? null : null
   const compareRows = leftVersion && rightVersion ? getCompareRows(leftVersion, rightVersion) : []
-  const overallScore = current?.score ?? '—'
+  const updateTaskFilter = (taskId: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (taskId) next.set('task', taskId)
+    else next.delete('task')
+    next.delete('group')
+    setPage(1)
+    setSearchParams(next)
+  }
+  const overallScore = getOverallScore(current)
 
   const startOptimize = (contentId: string) => optimize.mutate({
     request_id: `req_opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
@@ -152,9 +201,9 @@ export function ContentListPage() {
   return <div className="page">
     <div className="page-heading"><div><h1 className="page-title">内容列表</h1><p className="page-subtitle">每行代表一个内容组，当前版本与历史版本始终保留</p></div></div>
     <div className="kpi-grid">{kpis.map(item => <div className="card kpi-card" key={item.label}><div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="kpi-label">{item.label}</span><item.icon size={17} color="var(--primary)" /></div><div className="kpi-value">{item.value}</div><div className="kpi-hint">{item.hint}</div></div>)}</div>
-    <div className="card toolbar"><select className="select" value={platform} onChange={e => { setPlatform(e.target.value); setPage(1) }}><option value="">全部平台</option>{PLATFORMS.map(p => <option value={p.value} key={p.value}>{p.label}</option>)}</select><select className="select" value={status} onChange={e => { setStatus(e.target.value); setPage(1) }}><option value="">全部状态</option><option value="ACTIVE">有效</option><option value="ARCHIVED">已归档</option></select><input className="field" type="number" min="0" max="100" value={scoreMin} onChange={e => setScoreMin(e.target.value)} placeholder="最低分" /><input className="field" type="number" min="0" max="100" value={scoreMax} onChange={e => setScoreMax(e.target.value)} placeholder="最高分" /><div style={{ position: 'relative' }}><Search size={14} style={{ position: 'absolute', left: 10, top: 11, color: '#9aa2b3' }} /><input className="field search-field" style={{ paddingLeft: 30 }} value={keyword} onChange={e => { setKeyword(e.target.value); setPage(1) }} placeholder="搜索标题、正文或 ID" /></div></div>
+    <div className="card toolbar"><select className="select" aria-label="来源任务" value={taskFilter} onChange={event => updateTaskFilter(event.target.value)}><option value="">全部来源任务</option>{contentTasks.map(task => <option value={task.task_id} key={task.task_id}>{task.task_name} · {task.content_count} 条</option>)}</select><select className="select" value={platform} onChange={e => { setPlatform(e.target.value); setPage(1) }}><option value="">全部平台</option>{PLATFORMS.map(p => <option value={p.value} key={p.value}>{p.label}</option>)}</select><select className="select" value={status} onChange={e => { setStatus(e.target.value); setPage(1) }}><option value="">全部状态</option><option value="ACTIVE">有效</option><option value="ARCHIVED">已归档</option></select><input className="field" type="number" min="0" max="100" value={scoreMin} onChange={e => setScoreMin(e.target.value)} placeholder="最低分" /><input className="field" type="number" min="0" max="100" value={scoreMax} onChange={e => setScoreMax(e.target.value)} placeholder="最高分" /><div style={{ position: 'relative' }}><Search size={14} style={{ position: 'absolute', left: 10, top: 11, color: '#9aa2b3' }} /><input className="field search-field" style={{ paddingLeft: 30 }} value={keyword} onChange={e => { setKeyword(e.target.value); setPage(1) }} placeholder="搜索标题、正文或 ID" /></div></div>
     <div>
-      <section className="card"><div className="table-wrap">{groupsQuery.isLoading ? <div className="empty-state"><Loader2 size={28} /><div>加载内容...</div></div> : groups.length === 0 ? <div className="empty-state"><Layers3 size={36} /><div>暂无符合条件的内容</div></div> : <table className="data-table content-table"><thead><tr><th>内容 ID</th><th>标题</th><th>平台</th><th>来源任务</th><th>当前版本</th><th>历史版本</th><th>评分</th><th>状态</th><th>更新时间</th></tr></thead><tbody>{groups.map((group: ContentGroupDetail) => <tr key={group.content_group_id} className={selectedId === group.content_group_id ? 'is-selected' : ''} tabIndex={0} onClick={() => selectContent(group.content_group_id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectContent(group.content_group_id) } }}><td>{group.content_group_id}</td><td><b>{group.current_content?.title || '无标题'}</b></td><td>{getPlatformLabel(group.platform)}</td><td>{group.root_task_id}</td><td>v{group.current_version_no}</td><td>{historyCount(group.version_count)} 个</td><td>{group.current_content?.score != null ? <span className={group.current_content.score >= 80 ? 'badge green' : 'badge orange'}>{group.current_content.score}</span> : '—'}</td><td><span className={`badge ${group.status === 'ACTIVE' ? 'green' : 'red'}`}>{group.status === 'ACTIVE' ? (group.version_count > 1 ? '已优化' : '有效') : '已归档'}</span></td><td>{group.updated_at ? new Date(group.updated_at).toLocaleString('zh-CN') : '-'}</td></tr>)}</tbody></table>}</div><div className="pagination"><button disabled={page === 1} onClick={() => setPage(page - 1)}>‹</button><button className="is-active">{page}</button><button disabled={page * PAGE_SIZE >= total} onClick={() => setPage(page + 1)}>›</button></div></section>
+      <section className="card"><div className="table-wrap">{groupsQuery.isLoading ? <div className="empty-state"><Loader2 size={28} /><div>加载内容...</div></div> : groups.length === 0 ? <div className="empty-state"><Layers3 size={36} /><div>暂无符合条件的内容</div></div> : <table className="data-table content-table"><thead><tr><th>内容 ID</th><th>标题</th><th>平台</th><th>来源任务</th><th>当前版本</th><th>历史版本</th><th>评分</th><th>状态</th><th>更新时间</th></tr></thead><tbody>{groups.map((group: ContentGroupDetail) => <tr key={group.content_group_id} className={selectedId === group.content_group_id ? 'is-selected' : ''} tabIndex={0} onClick={() => selectContent(group.content_group_id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectContent(group.content_group_id) } }}><td>{group.content_group_id}</td><td><b>{group.current_content?.title || '无标题'}</b></td><td>{getPlatformLabel(group.platform)}</td><td>{group.root_task_id}</td><td>v{group.current_version_no}</td><td>{historyCount(group.version_count)} 个</td><td>{group.current_content?.score != null ? <span className={group.current_content.score >= 80 ? 'badge green' : 'badge orange'}>{group.current_content.score}</span> : '—'}</td><td><span className={`badge ${group.status === 'ACTIVE' ? 'green' : 'red'}`}>{group.status === 'ACTIVE' ? (group.version_count > 1 ? '已优化' : '有效') : '已归档'}</span></td><td>{group.updated_at ? new Date(group.updated_at).toLocaleString('zh-CN') : '-'}</td></tr>)}</tbody></table>}</div><div className="pagination"><div className="pagination-size"><span>每页</span><select className="select" aria-label="每页条数" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}>{PAGE_SIZES.map(s => <option value={s} key={s}>{s}</option>)}</select><span>条</span></div><div className="pagination-pages"><button disabled={page === 1} onClick={() => setPage(page - 1)}>‹</button><button className="is-active">{page}</button><button disabled={page * pageSize >= total} onClick={() => setPage(page + 1)}>›</button></div></div></section>
       <DetailModal open={!!selectedId} title="内容详情" onClose={closeContent} size="content">{detailQuery.isLoading ? <div className="empty-state"><Loader2 size={28} /></div> : detail ? <div className="content-detail-layout">
         <section className="content-hero">
           <div>

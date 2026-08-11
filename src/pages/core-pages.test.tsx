@@ -7,7 +7,7 @@ import { GeneratorPage } from './Generator'
 import { TasksPage } from './Tasks'
 import { ContentListPage } from './ContentList'
 import { App } from '../App'
-import { createGenerateTask, createOptimizeTask, estimateTask, fetchContentGroupDetail, fetchContentGroups, fetchContentVersions, fetchTaskDetail, fetchTaskEvents, fetchTasks } from '../api/endpoints'
+import { createGenerateTask, createOptimizeTask, estimateTask, fetchContentGroupDetail, fetchContentGroups, fetchContentTasks, fetchContentVersions, fetchTaskDetail, fetchTaskEvents, fetchTasks } from '../api/endpoints'
 
 vi.mock('../api/endpoints', async () => {
   const actual = await vi.importActual<typeof import('../api/endpoints')>('../api/endpoints')
@@ -19,6 +19,7 @@ vi.mock('../api/endpoints', async () => {
     fetchTaskDetail: vi.fn(),
     fetchTaskEvents: vi.fn().mockResolvedValue({ data: [] }),
     fetchContentGroups: vi.fn().mockResolvedValue({ data: { items: [], total: 0, page: 1, size: 20 } }),
+    fetchContentTasks: vi.fn().mockResolvedValue({ data: { items: [], total: 0, page: 1, size: 50 } }),
     fetchContentGroupDetail: vi.fn(),
     fetchContentVersions: vi.fn(),
     createOptimizeTask: vi.fn(),
@@ -113,6 +114,16 @@ describe('core workspace pages', () => {
     renderPage(<TasksPage />)
     expect(await screen.findByText('队列健康度')).toBeInTheDocument()
     expect(screen.getByText('全部任务')).toBeInTheDocument()
+  })
+
+  it('keeps task pagination controls usable with a selectable page size', async () => {
+    vi.mocked(fetchTasks).mockResolvedValue({ data: { items: [], total: 21, page: 1, size: 5 } } as never)
+    renderPage(<TasksPage />)
+    await waitFor(() => expect(vi.mocked(fetchTasks)).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, size: 5 })))
+    const pageSizeSelect = screen.getByLabelText('每页条数')
+    expect(pageSizeSelect).toHaveDisplayValue('5')
+    fireEvent.change(pageSizeSelect, { target: { value: '20' } })
+    await waitFor(() => expect(vi.mocked(fetchTasks)).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, size: 20 })))
   })
 
   it('renders content KPIs and score distribution', async () => {
@@ -214,6 +225,37 @@ describe('core workspace pages', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/content?source=create')
   })
 
+  it('filters content by source task from the first toolbar control', async () => {
+    const task = { task_id: 'task_source', task_name: '来源任务 A', task_type: 'GENERATE', task_status: 'SUCCESS', platform: 'XHS', content_count: 2, latest_updated_at: '2026-08-10T02:40:36' }
+    const firstContent = { content_id: 'content_a', task_id: 'task_source', content_group_id: 'group_a', title: '内容 A', body: '{"body":"正文 A"}', platform: 'XHS', version_no: 1, score: 82, model_name: 'deepseek-chat', provider: 'deepseek', evaluation_detail: {}, media_json: null, status: 'ACTIVE', created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    const secondContent = { ...firstContent, content_id: 'content_b', content_group_id: 'group_b', title: '内容 B', body: '{"body":"正文 B"}' }
+    const groups = [
+      { content_group_id: 'group_a', root_task_id: 'task_source', root_task_name: '来源任务 A', latest_task_id: 'task_source', generation_index: 1, platform: 'XHS', current_version_no: 1, version_count: 1, status: 'ACTIVE', current_content: firstContent, created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' },
+      { content_group_id: 'group_b', root_task_id: 'task_source', root_task_name: '来源任务 A', latest_task_id: 'task_source', generation_index: 2, platform: 'XHS', current_version_no: 1, version_count: 1, status: 'ACTIVE', current_content: secondContent, created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' },
+    ]
+    vi.mocked(fetchContentTasks).mockResolvedValueOnce({ data: { items: [task], total: 1, page: 1, size: 50 } } as never)
+    vi.mocked(fetchContentGroups).mockResolvedValueOnce({ data: { items: groups, total: 2, page: 1, size: 20 } } as never)
+    renderPage(<ContentListPage />, ['/content?task=task_source'])
+
+    const filters = screen.getAllByRole('combobox')
+    expect(filters[0]).toHaveAccessibleName('来源任务')
+    expect(filters[1]).toHaveDisplayValue('全部平台')
+    await waitFor(() => expect(vi.mocked(fetchContentGroups)).toHaveBeenLastCalledWith(expect.objectContaining({ task_id: 'task_source' })))
+    expect(await screen.findByText('内容 A')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '按任务分组' })).not.toBeInTheDocument()
+  })
+
+  it('opens generated content from the task detail dialog', async () => {
+    vi.mocked(fetchTasks).mockResolvedValueOnce({ data: { items: [failedTask], total: 1, page: 1, size: 20 } } as never)
+    vi.mocked(fetchTaskDetail).mockResolvedValueOnce({ data: { ...failedTask, success_count: 1, request_id: 'req_1', current_iteration: 0, max_iteration: 2, input_params: {}, image_requested_count: 0, image_success_count: 0, image_failed_count: 0 } } as never)
+    renderPage(<><TasksPage /><LocationProbe /></>)
+
+    fireEvent.click(await screen.findByText('失败任务'))
+    fireEvent.click(await screen.findByRole('button', { name: '查看生成内容' }))
+
+    expect(screen.getByTestId('location')).toHaveTextContent('/content?task=task_failed')
+  })
+
   it('opens content details when a focused content row receives Space', async () => {
     const content = { content_id: 'content_1', task_id: 'task_1', content_group_id: 'group_1', title: '防晒标题', body: '{"body":"正文内容","hashtags":[],"summary":"内容摘要"}', platform: 'XHS', version_no: 1, score: 80, model_name: 'deepseek-chat', provider: 'deepseek', evaluation_detail: {}, media_json: null, status: 'ACTIVE', created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
     const group = { content_group_id: 'group_1', root_task_id: 'task_1', latest_task_id: 'task_1', generation_index: 1, platform: 'XHS', current_version_no: 1, version_count: 1, status: 'ACTIVE', current_content: content, created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
@@ -250,6 +292,27 @@ describe('core workspace pages', () => {
     }))
   })
 
+  it('shows content score dimensions in Chinese and hides internal evaluation fields', async () => {
+    const content = { content_id: 'content_score', task_id: 'task_1', content_group_id: 'group_score', title: '评分内容', body: '{"body":"正文内容","hashtags":[],"summary":"内容摘要"}', platform: 'XHS', version_no: 1, score: null, model_name: 'deepseek-chat', provider: 'deepseek', evaluation_detail: { passed: false, dimensions: { appeal: 82, relevance: 85, originality: 75, readability: 80, engagement: 79 }, content_index: 0, overall_score: 88 }, media_json: null, status: 'ACTIVE', created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    const group = { content_group_id: 'group_score', root_task_id: 'task_1', latest_task_id: 'task_1', generation_index: 1, platform: 'XHS', current_version_no: 1, version_count: 1, status: 'ACTIVE', current_content: content, created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    vi.mocked(fetchContentGroups).mockResolvedValueOnce({ data: { items: [group], total: 1, page: 1, size: 20 } } as never)
+    vi.mocked(fetchContentGroupDetail).mockResolvedValueOnce({ data: group } as never)
+    vi.mocked(fetchContentVersions).mockResolvedValueOnce({ data: [content] } as never)
+    renderPage(<ContentListPage />)
+
+    fireEvent.click(await screen.findByText('评分内容'))
+
+    expect((await screen.findAllByText('88')).length).toBeGreaterThan(0)
+    expect(screen.getByText('吸引力')).toBeInTheDocument()
+    expect(screen.getByText('相关性')).toBeInTheDocument()
+    expect(screen.getByText('原创性')).toBeInTheDocument()
+    expect(screen.getByText('可读性')).toBeInTheDocument()
+    expect(screen.getByText('互动性')).toBeInTheDocument()
+    expect(screen.queryByText('engagement')).not.toBeInTheDocument()
+    expect(screen.queryByText('content_index')).not.toBeInTheDocument()
+    expect(screen.queryByText('overall_score')).not.toBeInTheDocument()
+  })
+
   it('compares any two selected content versions and defaults to the latest two', async () => {
     const current = { content_id: 'content_v3', task_id: 'task_2', content_group_id: 'group_3', title: '新版标题', body: '{"body":"新版正文","hashtags":["新版"],"summary":"新版摘要"}', platform: 'XHS', version_no: 3, score: 90, model_name: 'deepseek-chat', provider: 'deepseek', evaluation_detail: {}, media_json: null, status: 'ACTIVE', created_at: '2026-08-10T02:50:36', updated_at: '2026-08-10T02:50:36' }
     const middle = { ...current, content_id: 'content_v2', title: '中间版标题', body: '{"body":"中间版正文","hashtags":["中间版"],"summary":"中间版摘要"}', version_no: 2, score: 85, created_at: '2026-08-10T02:45:36', updated_at: '2026-08-10T02:45:36' }
@@ -277,16 +340,20 @@ describe('core workspace pages', () => {
     expect(screen.getByText('#旧版')).toBeInTheDocument()
   })
 
-  it('keeps content pagination controls usable', async () => {
-    vi.mocked(fetchContentGroups).mockResolvedValue({ data: { items: [], total: 21, page: 1, size: 20 } } as never)
-    renderPage(<ContentListPage />)
-    await waitFor(() => expect(vi.mocked(fetchContentGroups)).toHaveBeenCalled())
-    await waitFor(() => expect(screen.getAllByRole('button')[2]).toBeEnabled())
-    const buttons = screen.getAllByRole('button')
+  it('keeps content pagination controls usable with a selectable page size', async () => {
+    vi.mocked(fetchContentGroups).mockResolvedValue({ data: { items: [], total: 21, page: 1, size: 5 } } as never)
+    const { container } = renderPage(<ContentListPage />)
+    await waitFor(() => expect(vi.mocked(fetchContentGroups)).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, size: 5 })))
+    const pageSizeSelect = screen.getByLabelText('每页条数')
+    expect(pageSizeSelect).toHaveDisplayValue('5')
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('.pagination button'))
+    await waitFor(() => expect(buttons[2]).toBeEnabled())
     expect(buttons).toHaveLength(3)
     expect(buttons[0]).toBeDisabled()
     expect(buttons[1]).toHaveTextContent('1')
     fireEvent.click(buttons[2])
-    await waitFor(() => expect(vi.mocked(fetchContentGroups)).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2, size: 20 })))
+    await waitFor(() => expect(vi.mocked(fetchContentGroups)).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2, size: 5 })))
+    fireEvent.change(pageSizeSelect, { target: { value: '20' } })
+    await waitFor(() => expect(vi.mocked(fetchContentGroups)).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, size: 20 })))
   })
 })

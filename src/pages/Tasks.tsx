@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { Activity, Ban, Braces, CheckCircle2, ChevronDown, ChevronRight, Copy, Clock3, ListChecks, Loader2, RefreshCw, RotateCcw, Search, ShieldCheck, TimerReset, XCircle } from 'lucide-react'
+import { Activity, Ban, Braces, CheckCircle2, ChevronDown, ChevronRight, Copy, Clock3, FileText, ListChecks, Loader2, RefreshCw, RotateCcw, Search, ShieldCheck, TimerReset, XCircle } from 'lucide-react'
 import { cancelTask, fetchTaskDetail, fetchTaskEvents, fetchTasks, fetchTaskStatistics, retryTask, updateTaskPriority } from '../api/endpoints'
 import { PLATFORMS, PRIORITY_MAP, STATUS_MAP, type TaskListItem } from '../types'
 import { formatCNY, formatTokens, formatDuration, formatEventLabel, getTaskStage, isTaskControllable, formatBeijingTime } from '../utils/dashboard'
@@ -40,6 +40,7 @@ function formatJsonLines(value: unknown) {
 
 export function TasksPage() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(5)
   const [tab, setTab] = useState('')
@@ -57,6 +58,9 @@ export function TasksPage() {
     const next = new URLSearchParams(searchParams)
     next.delete('task')
     setSearchParams(next, { replace: true })
+  }
+  const openTaskContent = (taskId: string) => {
+    navigate(`/content?task=${encodeURIComponent(taskId)}`)
   }
   const status = ['QUALITY', 'OPTIMIZE'].includes(tab) ? undefined : tab || undefined
   const currentNode = tab === 'QUALITY' ? 'quality' : tab === 'OPTIMIZE' ? 'feedback' : undefined
@@ -98,7 +102,7 @@ export function TasksPage() {
     <div>
       <section className="card"><div className="tabs">{TABS.map(([value, label]) => <button className={`tab ${tab === value ? 'is-active' : ''}`} onClick={() => { setTab(value); setPage(1) }} key={value}>{label}</button>)}</div><div className="table-wrap">
         {tasksQuery.isLoading ? <div className="empty-state"><Loader2 size={28} /><div>加载任务...</div></div> : tasks.length === 0 ? <div className="empty-state"><ListChecks size={35} /><div>暂无符合条件的任务</div></div> : <table className="data-table tasks-table"><thead><tr><th>任务名称</th><th>平台</th><th>优先级</th><th>当前阶段</th><th>队列状态</th><th>成功/总数</th><th>进度</th><th>模型</th><th>Token</th><th>费用</th><th>创建时间</th></tr></thead><tbody>{tasks.map((task: TaskListItem) => { const state = STATUS_MAP[task.status]; const modelLabel = task.model_summary?.length > 0 ? task.model_summary.join('、') : '-'; const tokens = (task.usage_summary?.total_input_tokens ?? 0) + (task.usage_summary?.total_output_tokens ?? 0); return <tr key={task.task_id} className={selectedId === task.task_id ? 'is-selected' : ''} tabIndex={0} onClick={() => selectTask(task.task_id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectTask(task.task_id) } }}><td><b>{task.task_name}</b><div className="kpi-hint">{task.task_id}</div></td><td>{getPlatformLabel(task.platform)}</td><td><span className={`badge ${task.priority === 'HIGH' ? 'red' : task.priority === 'LOW' ? 'green' : 'orange'}`}>{getPriorityLabel(task.priority)}</span></td><td><span className="badge purple">{getTaskStage(task.current_node, task.status)}</span></td><td><span className={`badge ${task.status === 'FAILED' ? 'red' : task.status === 'SUCCESS' ? 'green' : 'purple'}`}>{state?.label ?? task.status}</span></td><td><span className={task.failed_count > 0 ? 'badge orange' : 'badge green'}>{task.success_count}/{task.requested_count}</span></td><td><div className="progress-cell"><div className="progress"><i style={{ width: `${task.progress}%` }} /></div>{task.progress}%</div></td><td><span style={{ fontSize: 12 }}>{modelLabel}</span></td><td>{tokens > 0 ? formatTokens(tokens) : '-'}</td><td>{getTaskCost(task.status, task.usage_summary?.total_cost)}</td><td>{task.created_at ? formatBeijingTime(task.created_at) : '-'}</td></tr> })}</tbody></table>}
-      </div><div className="pagination"><div className="pagination-size"><span>每页</span><select className="select" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}>{PAGE_SIZES.map(s => <option value={s} key={s}>{s}</option>)}</select><span>条</span></div><div className="pagination-pages"><button disabled={page === 1} onClick={() => setPage(page - 1)}>‹</button><button className="is-active">{page}</button><button disabled={page * pageSize >= total} onClick={() => setPage(page + 1)}>›</button></div></div></section>
+      </div><div className="pagination"><div className="pagination-size"><span>每页</span><select className="select" aria-label="每页条数" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}>{PAGE_SIZES.map(s => <option value={s} key={s}>{s}</option>)}</select><span>条</span></div><div className="pagination-pages"><button disabled={page === 1} onClick={() => setPage(page - 1)}>‹</button><button className="is-active">{page}</button><button disabled={page * pageSize >= total} onClick={() => setPage(page + 1)}>›</button></div></div></section>
       <DetailModal open={!!selectedId} title="任务详情" onClose={closeTask} size="task">{detailQuery.isLoading ? <div className="empty-state"><Loader2 size={28} /></div> : detail ? <div className="task-detail-layout">
         <section className="task-detail-title-row"><h3>{detail.task_name}</h3><span className={`badge ${detail.status === 'SUCCESS' ? 'purple' : detail.status === 'FAILED' ? 'red' : 'green'}`}>{statusInfo?.label ?? detail.status}</span></section>
         <section className="task-overview-grid">
@@ -110,7 +114,7 @@ export function TasksPage() {
 
         <section className="task-section task-progress-section"><h4><Activity size={16} />执行进度 <em>{detail.progress}%</em></h4><div className="progress" style={{ width: '100%', height: 8 }}><i style={{ width: `${detail.progress}%` }} /></div><div className="task-event-list">{events.map(event => <div className="task-event-item" key={event.event_id}><span /><b>{formatEventLabel(event.event_type, event.node, event.message)}</b><time>{event.created_at ? formatBeijingTime(event.created_at) : ''}</time></div>)}</div></section>
 
-        <div className="detail-modal-actions task-footer-actions"><button className="button danger" disabled={!isTaskControllable(detail.status, 'cancel')} onClick={() => cancel.mutate(detail.task_id)}><Ban size={13} />取消</button><button className="button" disabled={!isTaskControllable(detail.status, 'retry')} onClick={() => retry.mutate(detail.task_id)}><RotateCcw size={13} />重试</button><select className="select" disabled={!isTaskControllable(detail.status, 'priority')} value={detail.priority} onChange={e => priorityMutation.mutate({ id: detail.task_id, value: e.target.value as 'LOW' | 'NORMAL' | 'HIGH' })}><option value="LOW">低优先级</option><option value="NORMAL">普通</option><option value="HIGH">高优先级</option></select></div>
+        <div className="detail-modal-actions task-footer-actions">{detail.success_count > 0 && <button className="button" onClick={() => openTaskContent(detail.task_id)}><FileText size={13} />查看生成内容</button>}<button className="button danger" disabled={!isTaskControllable(detail.status, 'cancel')} onClick={() => cancel.mutate(detail.task_id)}><Ban size={13} />取消</button><button className="button" disabled={!isTaskControllable(detail.status, 'retry')} onClick={() => retry.mutate(detail.task_id)}><RotateCcw size={13} />重试</button><select className="select" disabled={!isTaskControllable(detail.status, 'priority')} value={detail.priority} onChange={e => priorityMutation.mutate({ id: detail.task_id, value: e.target.value as 'LOW' | 'NORMAL' | 'HIGH' })}><option value="LOW">低优先级</option><option value="NORMAL">普通</option><option value="HIGH">高优先级</option></select></div>
       </div> : <div className="empty-state">任务详情加载失败</div>}</DetailModal>
     </div>
   </div>
