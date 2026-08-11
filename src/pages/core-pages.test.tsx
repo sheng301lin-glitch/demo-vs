@@ -292,8 +292,23 @@ describe('core workspace pages', () => {
     }))
   })
 
+  it('copies a content row title and body without opening details', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const content = { content_id: 'content_copy', task_id: 'task_1', content_group_id: 'group_copy', title: 'Copy title', body: '{"title":"Copy title","body":"Copy body","hashtags":["tag","publish"],"summary":"summary"}', platform: 'XHS', version_no: 1, score: 80, model_name: 'deepseek-chat', provider: 'deepseek', evaluation_detail: {}, media_json: null, status: 'ACTIVE', created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    const group = { content_group_id: 'group_copy', root_task_id: 'task_1', latest_task_id: 'task_1', generation_index: 1, platform: 'XHS', current_version_no: 1, version_count: 1, status: 'ACTIVE', current_content: content, created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    vi.mocked(fetchContentGroups).mockResolvedValueOnce({ data: { items: [group], total: 1, page: 1, size: 5 } } as never)
+    renderPage(<ContentListPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Copy title/ }))
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('# Copy title\n\nCopy body\n\n#tag #publish'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('复制成功')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('shows content score dimensions in Chinese and hides internal evaluation fields', async () => {
-    const content = { content_id: 'content_score', task_id: 'task_1', content_group_id: 'group_score', title: '评分内容', body: '{"body":"正文内容","hashtags":[],"summary":"内容摘要"}', platform: 'XHS', version_no: 1, score: null, model_name: 'deepseek-chat', provider: 'deepseek', evaluation_detail: { passed: false, dimensions: { appeal: 82, relevance: 85, originality: 75, readability: 80, engagement: 79 }, content_index: 0, overall_score: 88 }, media_json: null, status: 'ACTIVE', created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
+    const content = { content_id: 'content_score', task_id: 'task_1', content_group_id: 'group_score', title: '评分内容', body: '{"body":"正文内容","hashtags":[],"summary":"内容摘要"}', platform: 'XHS', version_no: 1, score: null, model_name: 'deepseek-chat', provider: 'deepseek', evaluation_detail: { passed: false, dimensions: { appeal: 82, relevance: 85, originality: 75, readability: 80, engagement: 79 }, dimension_details: [{ dimension: 'appeal', score: 82, weight: 0.3 }, { dimension: 'relevance', score: 85, weight: 0.25 }, { dimension: 'originality', score: 75, weight: 0.2 }, { dimension: 'readability', score: 80, weight: 0.15 }, { dimension: 'engagement', score: 79, weight: 0.1 }], content_index: 0, overall_score: 88 }, media_json: null, status: 'ACTIVE', created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
     const group = { content_group_id: 'group_score', root_task_id: 'task_1', latest_task_id: 'task_1', generation_index: 1, platform: 'XHS', current_version_no: 1, version_count: 1, status: 'ACTIVE', current_content: content, created_at: '2026-08-10T02:40:36', updated_at: '2026-08-10T02:40:36' }
     vi.mocked(fetchContentGroups).mockResolvedValueOnce({ data: { items: [group], total: 1, page: 1, size: 20 } } as never)
     vi.mocked(fetchContentGroupDetail).mockResolvedValueOnce({ data: group } as never)
@@ -308,6 +323,8 @@ describe('core workspace pages', () => {
     expect(screen.getByText('原创性')).toBeInTheDocument()
     expect(screen.getByText('可读性')).toBeInTheDocument()
     expect(screen.getByText('互动性')).toBeInTheDocument()
+    expect(screen.getByText('权重 30%')).toBeInTheDocument()
+    expect(screen.getByText('权重 10%')).toBeInTheDocument()
     expect(screen.queryByText('engagement')).not.toBeInTheDocument()
     expect(screen.queryByText('content_index')).not.toBeInTheDocument()
     expect(screen.queryByText('overall_score')).not.toBeInTheDocument()

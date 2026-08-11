@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router'
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -67,24 +67,48 @@ function VersionValue({ value }: { value: string | string[] }) {
 
 function ScoreRows({ current }: { current: ContentResultItem | null | undefined }) {
   const detail = current?.evaluation_detail ?? {}
+  const dimensionDetails = Array.isArray(detail.dimension_details) ? detail.dimension_details as Record<string, unknown>[] : []
   const dimensions = detail.dimensions
+  const rawWeights = detail.weights ?? detail.dimension_weights
+  const weights = rawWeights && typeof rawWeights === 'object' && !Array.isArray(rawWeights)
+    ? rawWeights as Record<string, unknown>
+    : {}
   const scoreSource = dimensions && typeof dimensions === 'object' && !Array.isArray(dimensions)
     ? dimensions as Record<string, unknown>
     : detail
-  const entries = Object.entries(scoreSource)
-    .filter(([key, value]) => typeof value === 'number' && !HIDDEN_SCORE_KEYS.has(key))
-    .map(([key, value]) => [SCORE_LABELS[key] ?? key, value] as [string, number])
+  const entries = dimensionDetails.length > 0
+    ? dimensionDetails
+      .filter(item => typeof item.dimension === 'string' && typeof item.score === 'number')
+      .map(item => ({ key: item.dimension as string, label: SCORE_LABELS[item.dimension as string] ?? item.dimension as string, value: item.score as number, weight: formatScoreWeight(item.weight) }))
+    : Object.entries(scoreSource)
+      .filter(([key, value]) => typeof value === 'number' && !HIDDEN_SCORE_KEYS.has(key))
+      .map(([key, value]) => ({ key, label: SCORE_LABELS[key] ?? key, value: value as number, weight: formatScoreWeight(weights[key]) }))
 
   if (entries.length === 0) {
     return <div className="empty-state compact">暂无维度评分</div>
   }
 
-  return <div className="score-list">{entries.map(([key, value]) => <div className="score-row" key={key}><span>{key}</span><div className="progress"><i style={{ width: `${Math.min(100, value)}%` }} /></div><b>{value}</b></div>)}</div>
+  return <div className="score-list">{entries.map(entry => <div className="score-row" key={entry.key}><span>{entry.label}{entry.weight && <em>权重 {entry.weight}</em>}</span><div className="progress"><i style={{ width: `${Math.min(100, entry.value)}%` }} /></div><b>{entry.value}</b></div>)}</div>
+}
+
+function formatScoreWeight(value: unknown) {
+  if (typeof value !== 'number') return null
+  const percent = value <= 1 ? value * 100 : value
+  return `${Number.isInteger(percent) ? percent : Number(percent.toFixed(1))}%`
 }
 
 function getOverallScore(current: ContentResultItem | null | undefined) {
   const detailScore = current?.evaluation_detail?.overall_score
   return current?.score ?? (typeof detailScore === 'number' ? detailScore : '—')
+}
+
+function getContentCopyText(content: ContentResultItem | null | undefined) {
+  const title = content?.title || '无标题'
+  const preview = parseContentPreview(content?.body)
+  const lines = [`# ${title}`]
+  if (preview.body) lines.push('', preview.body)
+  if (preview.hashtags.length > 0) lines.push('', preview.hashtags.map(tag => `#${tag.replace(/^#/, '')}`).join(' '))
+  return lines.join('\n')
 }
 
 export function ContentListPage() {
@@ -99,6 +123,8 @@ export function ContentListPage() {
   const [instruction, setInstruction] = useState('')
   const [leftVersionId, setLeftVersionId] = useState<string | null>(null)
   const [rightVersionId, setRightVersionId] = useState<string | null>(null)
+  const [copyNotice, setCopyNotice] = useState('')
+  const copyNoticeTimer = useRef<number | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedId = searchParams.get('group')
   const taskFilter = searchParams.get('task') ?? ''
@@ -132,6 +158,10 @@ export function ContentListPage() {
     setLeftVersionId(versions[0].content_id)
     setRightVersionId(versions[1].content_id)
   }, [leftVersionId, rightVersionId, selectedId, versions])
+
+  useEffect(() => () => {
+    if (copyNoticeTimer.current) window.clearTimeout(copyNoticeTimer.current)
+  }, [])
 
   const selectContent = (groupId: string) => {
     const next = new URLSearchParams(searchParams)
@@ -175,6 +205,12 @@ export function ContentListPage() {
     setSearchParams(next)
   }
   const overallScore = getOverallScore(current)
+  const copyContent = async (content: ContentResultItem | null | undefined) => {
+    await navigator.clipboard?.writeText(getContentCopyText(content))
+    setCopyNotice('复制成功，可直接粘贴发布')
+    if (copyNoticeTimer.current) window.clearTimeout(copyNoticeTimer.current)
+    copyNoticeTimer.current = window.setTimeout(() => setCopyNotice(''), 2200)
+  }
 
   const startOptimize = (contentId: string) => optimize.mutate({
     request_id: `req_opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
@@ -199,11 +235,12 @@ export function ContentListPage() {
   ]
 
   return <div className="page">
+    {copyNotice && <div className="copy-toast" role="alert">{copyNotice}</div>}
     <div className="page-heading"><div><h1 className="page-title">内容列表</h1><p className="page-subtitle">每行代表一个内容组，当前版本与历史版本始终保留</p></div></div>
     <div className="kpi-grid">{kpis.map(item => <div className="card kpi-card" key={item.label}><div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="kpi-label">{item.label}</span><item.icon size={17} color="var(--primary)" /></div><div className="kpi-value">{item.value}</div><div className="kpi-hint">{item.hint}</div></div>)}</div>
     <div className="card toolbar"><select className="select" aria-label="来源任务" value={taskFilter} onChange={event => updateTaskFilter(event.target.value)}><option value="">全部来源任务</option>{contentTasks.map(task => <option value={task.task_id} key={task.task_id}>{task.task_name} · {task.content_count} 条</option>)}</select><select className="select" value={platform} onChange={e => { setPlatform(e.target.value); setPage(1) }}><option value="">全部平台</option>{PLATFORMS.map(p => <option value={p.value} key={p.value}>{p.label}</option>)}</select><select className="select" value={status} onChange={e => { setStatus(e.target.value); setPage(1) }}><option value="">全部状态</option><option value="ACTIVE">有效</option><option value="ARCHIVED">已归档</option></select><input className="field" type="number" min="0" max="100" value={scoreMin} onChange={e => setScoreMin(e.target.value)} placeholder="最低分" /><input className="field" type="number" min="0" max="100" value={scoreMax} onChange={e => setScoreMax(e.target.value)} placeholder="最高分" /><div style={{ position: 'relative' }}><Search size={14} style={{ position: 'absolute', left: 10, top: 11, color: '#9aa2b3' }} /><input className="field search-field" style={{ paddingLeft: 30 }} value={keyword} onChange={e => { setKeyword(e.target.value); setPage(1) }} placeholder="搜索标题、正文或 ID" /></div></div>
     <div>
-      <section className="card"><div className="table-wrap">{groupsQuery.isLoading ? <div className="empty-state"><Loader2 size={28} /><div>加载内容...</div></div> : groups.length === 0 ? <div className="empty-state"><Layers3 size={36} /><div>暂无符合条件的内容</div></div> : <table className="data-table content-table"><thead><tr><th>内容 ID</th><th>标题</th><th>平台</th><th>来源任务</th><th>当前版本</th><th>历史版本</th><th>评分</th><th>状态</th><th>更新时间</th></tr></thead><tbody>{groups.map((group: ContentGroupDetail) => <tr key={group.content_group_id} className={selectedId === group.content_group_id ? 'is-selected' : ''} tabIndex={0} onClick={() => selectContent(group.content_group_id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectContent(group.content_group_id) } }}><td>{group.content_group_id}</td><td><b>{group.current_content?.title || '无标题'}</b></td><td>{getPlatformLabel(group.platform)}</td><td>{group.root_task_id}</td><td>v{group.current_version_no}</td><td>{historyCount(group.version_count)} 个</td><td>{group.current_content?.score != null ? <span className={group.current_content.score >= 80 ? 'badge green' : 'badge orange'}>{group.current_content.score}</span> : '—'}</td><td><span className={`badge ${group.status === 'ACTIVE' ? 'green' : 'red'}`}>{group.status === 'ACTIVE' ? (group.version_count > 1 ? '已优化' : '有效') : '已归档'}</span></td><td>{group.updated_at ? new Date(group.updated_at).toLocaleString('zh-CN') : '-'}</td></tr>)}</tbody></table>}</div><div className="pagination"><div className="pagination-size"><span>每页</span><select className="select" aria-label="每页条数" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}>{PAGE_SIZES.map(s => <option value={s} key={s}>{s}</option>)}</select><span>条</span></div><div className="pagination-pages"><button disabled={page === 1} onClick={() => setPage(page - 1)}>‹</button><button className="is-active">{page}</button><button disabled={page * pageSize >= total} onClick={() => setPage(page + 1)}>›</button></div></div></section>
+      <section className="card"><div className="table-wrap">{groupsQuery.isLoading ? <div className="empty-state"><Loader2 size={28} /><div>加载内容...</div></div> : groups.length === 0 ? <div className="empty-state"><Layers3 size={36} /><div>暂无符合条件的内容</div></div> : <table className="data-table content-table"><thead><tr><th>内容 ID</th><th>标题</th><th>平台</th><th>来源任务</th><th>当前版本</th><th>历史版本</th><th>评分</th><th>状态</th><th>更新时间</th></tr></thead><tbody>{groups.map((group: ContentGroupDetail) => <tr key={group.content_group_id} className={selectedId === group.content_group_id ? 'is-selected' : ''} tabIndex={0} onClick={() => selectContent(group.content_group_id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectContent(group.content_group_id) } }}><td>{group.content_group_id}</td><td><div className="content-title-cell"><b>{group.current_content?.title || '无标题'}</b>{group.current_content && <button type="button" className="icon-button content-copy-button" aria-label={`复制内容 ${group.current_content.title || '无标题'}`} onClick={event => { event.stopPropagation(); copyContent(group.current_content) }} onKeyDown={event => event.stopPropagation()}><Copy size={13} /></button>}</div></td><td>{getPlatformLabel(group.platform)}</td><td>{group.root_task_id}</td><td>v{group.current_version_no}</td><td>{historyCount(group.version_count)} 个</td><td>{group.current_content?.score != null ? <span className={group.current_content.score >= 80 ? 'badge green' : 'badge orange'}>{group.current_content.score}</span> : '—'}</td><td><span className={`badge ${group.status === 'ACTIVE' ? 'green' : 'red'}`}>{group.status === 'ACTIVE' ? (group.version_count > 1 ? '已优化' : '有效') : '已归档'}</span></td><td>{group.updated_at ? new Date(group.updated_at).toLocaleString('zh-CN') : '-'}</td></tr>)}</tbody></table>}</div><div className="pagination"><div className="pagination-size"><span>每页</span><select className="select" aria-label="每页条数" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}>{PAGE_SIZES.map(s => <option value={s} key={s}>{s}</option>)}</select><span>条</span></div><div className="pagination-pages"><button disabled={page === 1} onClick={() => setPage(page - 1)}>‹</button><button className="is-active">{page}</button><button disabled={page * pageSize >= total} onClick={() => setPage(page + 1)}>›</button></div></div></section>
       <DetailModal open={!!selectedId} title="内容详情" onClose={closeContent} size="content">{detailQuery.isLoading ? <div className="empty-state"><Loader2 size={28} /></div> : detail ? <div className="content-detail-layout">
         <section className="content-hero">
           <div>
